@@ -1,0 +1,11 @@
+# Run from the repository root: `docker compose -f docker/compose.yaml up -d`.
+# Paths are relative to this file's directory (docker/), so `../` points at the
+# repository root where `.env` and `config/config.toml` live.
+services:
+  app:
+    image: ghcr.io/m1sk9/honeypot:v0
+    env_file:
+      - ../.env
+    volumes:
+      - ../config/config.toml:/config/config.toml
+    restart: always

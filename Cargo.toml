@@ -1,7 +1,11 @@
 [package]
-name = "HoneyPot"
+name = "honeypot"
 version = "0.0.0"
 edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/m1sk9/HoneyPot"
+readme = "README.md"
+description = "A Discord bot that automatically bans spam bots via honeypot roles and channels."
 
 [dependencies]
 serenity = { version = "0.12.5", default-features = false, features = ["client", "gateway", "model", "rustls_backend"] }
