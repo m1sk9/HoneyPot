@@ -5,12 +5,50 @@
 //! `Unban` button to the guild's log channel. Detection is factored into pure
 //! predicates ([`newly_acquired_honeypot_role`], [`is_honeypot_channel`]) so the
 //! HTTP-free logic stays unit-testable.
+//!
+//! Because the serenity cache is disabled, `guild_member_update` fires for a
+//! honeypot-role holder on *any* update (nickname, timeout, …), and an offender
+//! can trip both honeypot paths at once. [`execute_ban`] therefore claims each
+//! `(guild, user)` before acting so concurrent or repeated triggers ban and
+//! notify only once.
 
 use crate::error::HoneyPotError;
 use serenity::all::{
     ButtonStyle, ChannelId, Colour, Context, CreateActionRow, CreateButton, CreateEmbed,
     CreateMessage, GuildId, Mentionable, RoleId, Timestamp, User, UserId,
 };
+use std::collections::HashSet;
+use std::sync::{LazyLock, Mutex};
+
+/// `(guild, user)` pairs already banned by a honeypot trigger.
+///
+/// Kept on success so concurrent events (e.g. a honeypot post *and* role gained
+/// at once) or repeated `guild_member_update`s don't post duplicate log embeds.
+/// A failed ban releases its claim (see [`execute_ban`]) so a later event can
+/// retry, and [`forget_ban`] lets a future unban handler allow re-banning.
+static HANDLED_BANS: LazyLock<Mutex<HashSet<(GuildId, UserId)>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// Claims `(guild_id, user_id)`, returning `true` only on the first claim.
+///
+/// Subsequent claims return `false` until [`forget_ban`] releases the pair.
+fn claim_ban(guild_id: GuildId, user_id: UserId) -> bool {
+    HANDLED_BANS
+        .lock()
+        .expect("HANDLED_BANS mutex poisoned")
+        .insert((guild_id, user_id))
+}
+
+/// Releases a claim so `(guild_id, user_id)` can be banned again.
+///
+/// Called internally when a ban fails, and intended for the future unban
+/// handler to call after lifting a ban.
+pub fn forget_ban(guild_id: GuildId, user_id: UserId) {
+    HANDLED_BANS
+        .lock()
+        .expect("HANDLED_BANS mutex poisoned")
+        .remove(&(guild_id, user_id));
+}
 
 /// Prefix for the unban button `custom_id`. The full id is `uhp_unban:{user_id}`;
 /// the button handler (separate issue) parses the suffix as a [`UserId`].
@@ -76,13 +114,13 @@ pub fn is_honeypot_channel(honeypot_channel_ids: &[ChannelId], channel_id: Chann
 }
 
 /// Formats the target user field: mention, tag, and raw ID.
+///
+/// The tag embeds a user-controlled username inside an inline code span, so
+/// backticks are neutralized to keep the span from being broken (spoofing the
+/// log embed's layout).
 fn target_field(target: &User) -> String {
-    format!(
-        "{} (`{}`)\nID: {}",
-        target.mention(),
-        target.tag(),
-        target.id
-    )
+    let tag = target.tag().replace('`', "'");
+    format!("{} (`{}`)\nID: {}", target.mention(), tag, target.id)
 }
 
 /// Builds the ban notification embed.
@@ -113,8 +151,11 @@ fn build_ban_message(target: &User, trigger: &BanTrigger) -> CreateMessage {
 
 /// Bans `target` from `guild_id` and posts a log embed to `log_channel_id`.
 ///
-/// Bans first (deleting [`DELETE_MESSAGE_DAYS`] of messages), then notifies. A
-/// failed notification is logged but does not undo or mask the successful ban.
+/// Idempotent per `(guild, user)`: a duplicate trigger while the offender is
+/// already claimed returns early without re-banning or re-notifying. Bans first
+/// (deleting [`DELETE_MESSAGE_DAYS`] of messages), then notifies; a failed
+/// notification is logged but does not undo or mask the successful ban. A failed
+/// ban releases the claim so a later event can retry.
 pub async fn execute_ban(
     ctx: &Context,
     guild_id: GuildId,
@@ -122,10 +163,22 @@ pub async fn execute_ban(
     target: &User,
     trigger: BanTrigger,
 ) -> Result<(), HoneyPotError> {
+    if !claim_ban(guild_id, target.id) {
+        tracing::debug!(
+            user_id = %target.id,
+            "skipping duplicate honeypot ban for already-handled user"
+        );
+        return Ok(());
+    }
+
     let reason = format!("Honeypot triggered ({})", trigger.kind());
-    guild_id
+    if let Err(error) = guild_id
         .ban_with_reason(&ctx.http, target.id, DELETE_MESSAGE_DAYS, &reason)
-        .await?;
+        .await
+    {
+        forget_ban(guild_id, target.id);
+        return Err(error.into());
+    }
 
     if let Err(error) = log_channel_id
         .send_message(&ctx.http, build_ban_message(target, &trigger))
@@ -216,5 +269,28 @@ mod tests {
         let channel = BanTrigger::Channel(ChannelId::new(84));
         assert_eq!(channel.kind(), "channel");
         assert_eq!(channel.detail(), "<#84>");
+    }
+
+    #[test]
+    fn claim_is_idempotent_until_forgotten() {
+        // Unique ids keep this test independent of the shared global set.
+        let guild = GuildId::new(9_000_000_000_000_001);
+        let user = UserId::new(9_000_000_000_000_002);
+
+        assert!(claim_ban(guild, user), "first claim should succeed");
+        assert!(!claim_ban(guild, user), "second claim should be skipped");
+
+        forget_ban(guild, user);
+        assert!(claim_ban(guild, user), "claim allowed again after forget");
+
+        forget_ban(guild, user);
+    }
+
+    #[test]
+    fn target_tag_backticks_are_neutralized() {
+        let mut user = User::default();
+        user.name = "ev`il".to_string();
+        user.discriminator = None;
+        assert!(!target_field(&user).contains("ev`il"));
     }
 }
