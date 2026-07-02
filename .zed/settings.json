@@ -1,0 +1,6 @@
+{
+  "enable_language_server": true,
+  "format_on_save": "on",
+  "formatter": "language_server",
+  "language_servers": ["!biome", "rust-analyzer"],
+}
