@@ -6,9 +6,10 @@
 //! The bot's own account is captured in `ready` and never banned.
 
 use crate::discord::ban::{self, BanTrigger, is_honeypot_channel, newly_acquired_honeypot_role};
+use crate::discord::interaction;
 use crate::settings::HoneyPotConfig;
 use serenity::all::{
-    Context, EventHandler, GuildMemberUpdateEvent, Member, Message, Ready, UserId,
+    Context, EventHandler, GuildMemberUpdateEvent, Interaction, Member, Message, Ready, UserId,
 };
 use std::sync::OnceLock;
 
@@ -69,6 +70,12 @@ impl EventHandler for HoneyPotEventHandler {
                 user_id = %event.user.id,
                 "failed to ban member on honeypot role"
             );
+        }
+    }
+
+    async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
+        if let Interaction::Component(component) = interaction {
+            interaction::handle_component(&ctx, &component).await;
         }
     }
 
