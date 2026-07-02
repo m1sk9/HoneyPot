@@ -16,3 +16,12 @@ coverage:
 
 comment:
   require_changes: false
+
+# `interaction.rs` is entirely a Discord HTTP boundary (button interaction
+# handling: unban calls and interaction responses), so none of it can be
+# exercised without a live connection. Its only pure logic — parsing the unban
+# button `custom_id` — lives in and is unit-tested from `ban.rs`. Excluding it
+# keeps the coverage signal meaningful. `ban.rs`/`handler.rs` are NOT ignored
+# because they still contain testable pure logic alongside their I/O.
+ignore:
+  - "src/discord/interaction.rs"
