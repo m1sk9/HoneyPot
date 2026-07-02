@@ -21,6 +21,16 @@ const BOT_TOKEN_ENV: &str = "HONEYPOT_BOT_TOKEN";
 
 #[tokio::main]
 async fn main() -> Result<(), HoneyPotError> {
+    // Load a local `.env` if present so `RUST_LOG`, the bot token, and other
+    // settings can be supplied without exporting them. A missing file is not an
+    // error (production supplies real environment variables); other parse errors
+    // are surfaced. Runs before anything reads the environment.
+    if let Err(error) = dotenvy::dotenv()
+        && !error.not_found()
+    {
+        return Err(HoneyPotError::Dotenv(error));
+    }
+
     // `RUST_LOG` takes precedence; otherwise default this crate to `info`.
     // The tracing target root is the crate name, so derive it from
     // `CARGO_CRATE_NAME` to stay correct across renames.

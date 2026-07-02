@@ -18,6 +18,10 @@ pub enum HoneyPotError {
     /// A required environment variable is missing.
     #[error("Missing environment variable: {0}")]
     MissingEnv(String),
+    /// Failed to load the `.env` file (parse or I/O error; a missing file is
+    /// not treated as an error).
+    #[error("Failed to load .env file: {0}")]
+    Dotenv(#[from] dotenvy::Error),
     /// The Discord client returned an error.
     ///
     /// Boxed because `serenity::Error` is large; keeping it inline would bloat
