@@ -36,7 +36,10 @@ async fn main() -> Result<(), HoneyPotError> {
     // `CARGO_CRATE_NAME` to stay correct across renames.
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(concat!(env!("CARGO_CRATE_NAME"), "=info")));
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .json()
+        .init();
 
     HoneyPotConfig::init()?;
     tracing::debug!("Config: {:?}", HoneyPotConfig::get());

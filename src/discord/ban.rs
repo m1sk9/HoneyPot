@@ -62,6 +62,18 @@ fn unban_custom_id(user_id: UserId) -> String {
     format!("{UNBAN_CUSTOM_ID_PREFIX}:{user_id}")
 }
 
+/// Parses an unban button `custom_id` (`uhp_unban:{user_id}`) into its target
+/// [`UserId`]. Returns `None` for any other `custom_id`.
+///
+/// Inverse of [`unban_custom_id`]; kept alongside it so the encoding stays in
+/// sync.
+pub fn parse_unban_custom_id(custom_id: &str) -> Option<UserId> {
+    let suffix = custom_id
+        .strip_prefix(UNBAN_CUSTOM_ID_PREFIX)?
+        .strip_prefix(':')?;
+    suffix.parse::<u64>().ok().map(UserId::new)
+}
+
 /// Which honeypot fired, carried into the log embed.
 pub enum BanTrigger {
     /// The offender acquired this honeypot role.
@@ -180,6 +192,13 @@ pub async fn execute_ban(
         return Err(error.into());
     }
 
+    tracing::info!(
+        guild_id = %guild_id,
+        user_id = %target.id,
+        trigger = trigger.kind(),
+        "banned member on honeypot trigger"
+    );
+
     if let Err(error) = log_channel_id
         .send_message(&ctx.http, build_ban_message(target, &trigger))
         .await
@@ -258,6 +277,20 @@ mod tests {
     #[test]
     fn unban_custom_id_format() {
         assert_eq!(unban_custom_id(UserId::new(123)), "uhp_unban:123");
+    }
+
+    #[test]
+    fn parse_unban_custom_id_roundtrips() {
+        let id = UserId::new(123456789012345678);
+        assert_eq!(parse_unban_custom_id(&unban_custom_id(id)), Some(id));
+    }
+
+    #[test]
+    fn parse_unban_custom_id_rejects_non_matching() {
+        assert_eq!(parse_unban_custom_id("other_button:123"), None);
+        assert_eq!(parse_unban_custom_id("uhp_unban"), None);
+        assert_eq!(parse_unban_custom_id("uhp_unban:"), None);
+        assert_eq!(parse_unban_custom_id("uhp_unban:not_a_number"), None);
     }
 
     #[test]
