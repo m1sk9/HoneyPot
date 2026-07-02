@@ -26,11 +26,7 @@ pub struct HoneyPotConfig {
 }
 
 /// Honeypot configuration for a single guild, using serenity ID types.
-///
-/// The fields are consumed by the honeypot event logic added in follow-up
-/// work; `allow(dead_code)` keeps the foundation build warning-free until then.
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct GuildConfig {
     /// Roles that trigger a ban when acquired.
     pub honeypot_role_ids: Vec<RoleId>,
@@ -94,9 +90,6 @@ impl HoneyPotConfig {
     }
 
     /// Returns the honeypot configuration for `guild_id`, if any.
-    ///
-    /// Consumed by the honeypot event logic added in follow-up work.
-    #[allow(dead_code)]
     pub fn guild(&self, guild_id: GuildId) -> Option<&GuildConfig> {
         self.guilds.get(&guild_id)
     }

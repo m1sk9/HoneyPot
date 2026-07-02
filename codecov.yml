@@ -1,0 +1,18 @@
+# Coverage reporting configuration.
+#
+# The bot's Discord I/O boundaries (real HTTP calls in `execute_ban` and the
+# gateway event handlers) cannot be exercised without a live connection, so
+# coverage targets are informational: they are reported on the PR but never
+# block merging. Pure logic (detection predicates, formatting, the dedup
+# guard) is unit-tested directly.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  require_changes: false
