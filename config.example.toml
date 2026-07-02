@@ -1,0 +1,21 @@
+# HoneyPot configuration example.
+#
+# Copy this file to `config.toml` (or point `HONEYPOT_CONFIG_PATH` at it) and
+# replace the placeholder IDs with your own. Each `[[guilds]]` block configures
+# one guild; declare multiple blocks to serve multiple guilds.
+#
+# NOTE: IDs are TOML integers, so they must not have leading zeros. Discord
+# snowflake IDs are 17-19 digit numbers and never start with 0, so paste them
+# as-is (the values below are placeholders).
+
+[[guilds]]
+guild_id             = 100000000000000000
+honeypot_role_ids    = [200000000000000000]
+honeypot_channel_ids = [300000000000000000]
+log_channel_id       = 400000000000000000
+
+[[guilds]]
+guild_id             = 111111111111111111
+honeypot_role_ids    = [222222222222222222]
+honeypot_channel_ids = []
+log_channel_id       = 444444444444444444
