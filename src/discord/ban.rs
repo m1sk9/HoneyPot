@@ -192,6 +192,13 @@ pub async fn execute_ban(
         return Err(error.into());
     }
 
+    tracing::info!(
+        guild_id = %guild_id,
+        user_id = %target.id,
+        trigger = trigger.kind(),
+        "banned member on honeypot trigger"
+    );
+
     if let Err(error) = log_channel_id
         .send_message(&ctx.http, build_ban_message(target, &trigger))
         .await

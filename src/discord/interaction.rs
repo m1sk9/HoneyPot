@@ -54,6 +54,13 @@ pub async fn handle_component(ctx: &Context, component: &ComponentInteraction) {
     // Allow the offender to be banned again if they re-trip a honeypot.
     ban::forget_ban(guild_id, target_id);
 
+    tracing::info!(
+        guild_id = %guild_id,
+        user_id = %target_id,
+        moderator_id = %component.user.id,
+        "unbanned member via unban button"
+    );
+
     let embed = resolved_embed(component, target_id);
     let response = CreateInteractionResponse::UpdateMessage(
         CreateInteractionResponseMessage::new()
