@@ -3,20 +3,6 @@
 version = 4
 
 [[package]]
-name = "HoneyPot"
-version = "0.0.0"
-dependencies = [
- "dotenvy",
- "serde",
- "serenity",
- "thiserror 2.0.18",
- "tokio",
- "toml",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -337,6 +323,20 @@ name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+
+[[package]]
+name = "honeypot"
+version = "0.0.0"
+dependencies = [
+ "dotenvy",
+ "serde",
+ "serenity",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "http"

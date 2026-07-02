@@ -17,7 +17,7 @@ pub static SETTINGS: OnceLock<HoneyPotConfig> = OnceLock::new();
 const CONFIG_PATH_ENV: &str = "HONEYPOT_CONFIG_PATH";
 
 /// Default configuration file path used when [`CONFIG_PATH_ENV`] is unset.
-const DEFAULT_CONFIG_PATH: &str = "config.toml";
+const DEFAULT_CONFIG_PATH: &str = "config/config.toml";
 
 /// Runtime configuration for all guilds served by this deployment.
 #[derive(Debug)]

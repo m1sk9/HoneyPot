@@ -1,0 +1,50 @@
+name: Deploy Docs
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          prefix-key: "honeypot/gh-actions-cache"
+
+      - name: Build documentation
+        run: RUSTDOCFLAGS="--enable-index-page -Zunstable-options" cargo +nightly doc --no-deps --document-private-items
+
+      - name: Upload artifact
+        id: honeypot_doc
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: target/doc
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-24.04
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: honeypot_doc
+        uses: actions/deploy-pages@v5
