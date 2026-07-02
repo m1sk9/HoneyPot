@@ -38,34 +38,69 @@ docker pull ghcr.io/m1sk9/honeypot:v0.1.0
 On ban, up to one day of the offender's messages are deleted, and the bot never
 bans its own account.
 
-## Installation
+## Setup
 
-You can install HoneyPot using Docker. The following command pulls the latest
-minor release.
+HoneyPot is distributed as a Docker image. The steps below take you from an
+empty Discord application to a running bot.
 
-```shell
-docker pull ghcr.io/m1sk9/honeypot:v0
-```
-
+- HoneyPot is tested on macOS and Linux (major distributions) as the recommended environment.
 - Multi-architecture images are published for `linux/amd64` and `linux/arm64`.
 
-### Discord Developer Portal setup
+### 1. Create a Discord application and bot
+
+1. Open the [Discord Developer Portal](https://discord.com/developers/applications) and click **New Application**.
+2. Go to the **Bot** tab and click **Reset Token** to reveal the bot token. Copy it — this is your `HONEYPOT_BOT_TOKEN`. Keep it secret.
+
+### 2. Enable the privileged intent
 
 HoneyPot requires the **`GUILD_MEMBERS`** privileged intent to observe role
 changes. Enable it before starting the bot:
 
-1. Open the [Discord Developer Portal](https://discord.com/developers/applications) and select your application.
-2. Go to **Bot** → **Privileged Gateway Intents**.
-3. Enable **Server Members Intent** (`GUILD_MEMBERS`), then save.
+1. In the **Bot** tab, scroll to **Privileged Gateway Intents**.
+2. Enable **Server Members Intent** (`GUILD_MEMBERS`), then save.
 
 The bot uses the following gateway intents: `GUILDS`, `GUILD_MEMBERS`,
 `GUILD_MESSAGES`, and `GUILD_MODERATION`. `MESSAGE_CONTENT` is intentionally
 **not** requested — only the fact that a message was posted matters, not its
 content.
 
-The bot also needs the **Ban Members** permission in every guild it moderates.
+### 3. Invite the bot to your server
 
-### Using Docker Compose
+Generate an invite URL with the `bot` scope and the permissions HoneyPot needs:
+**Ban Members** (to ban offenders), **View Channel** (to receive messages in
+honeypot channels), and **Send Messages** + **Embed Links** (to post the log
+notification).
+
+Replace `YOUR_CLIENT_ID` with your application's **Client ID** (found on the
+**OAuth2** tab). `permissions=19460` bundles the four permissions above.
+
+```
+https://discord.com/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=19460&scope=bot
+```
+
+Open the URL, pick your server, and authorize.
+
+### 4. Collect the guild, role, and channel IDs
+
+HoneyPot is configured with numeric Discord IDs. To copy them, enable
+**Developer Mode** in Discord (**User Settings** → **Advanced** → **Developer
+Mode**). You can then right-click any server, role, or channel and choose **Copy
+ID**. You will need:
+
+- The **guild (server) ID**.
+- The **honeypot role ID(s)** and/or **honeypot channel ID(s)** — the traps.
+- The **log channel ID** — where ban notifications are posted.
+
+### 5. Configure HoneyPot
+
+Create `config/config.toml` from [`config/config.example.toml`](./config/config.example.toml)
+and fill in the IDs from the previous step. See [Configuration](#configuration)
+for the full reference.
+
+Create a `.env` file from [`.env.example`](./.env.example) and set
+`HONEYPOT_BOT_TOKEN` to the token from step 1.
+
+### 6. Run with Docker Compose
 
 Using Docker Compose is the recommended way to run HoneyPot. The repository
 ships [`docker/compose.yaml`](./docker/compose.yaml):
@@ -81,9 +116,11 @@ services:
     restart: always
 ```
 
-1. Create a `.env` file (see [`.env.example`](./.env.example)) and set `HONEYPOT_BOT_TOKEN`.
-2. Create `config/config.toml` from [`config/config.example.toml`](./config/config.example.toml) and fill in your guild IDs.
-3. Start the bot from the repository root: `docker compose -f docker/compose.yaml up -d`.
+Start the bot from the repository root:
+
+```shell
+docker compose -f docker/compose.yaml up -d
+```
 
 Paths in the compose file are relative to `docker/`, so `../` points at the
 repository root where `.env` and `config/config.toml` live.
