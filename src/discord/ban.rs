@@ -51,8 +51,13 @@ pub fn forget_ban(guild_id: GuildId, user_id: UserId) {
 }
 
 /// Prefix for the unban button `custom_id`. The full id is `uhp_unban:{user_id}`;
-/// the button handler (separate issue) parses the suffix as a [`UserId`].
+/// the button handler parses the suffix as a [`UserId`].
 pub const UNBAN_CUSTOM_ID_PREFIX: &str = "uhp_unban";
+
+/// Prefix for the manual-ban button `custom_id`. The full id is
+/// `uhp_ban:{user_id}`. This button appears on the "untrusted bot" notice so a
+/// moderator can confirm the ban that was deliberately not applied automatically.
+pub const BAN_CUSTOM_ID_PREFIX: &str = "uhp_ban";
 
 /// Number of days' worth of the offender's messages to delete on ban.
 const DELETE_MESSAGE_DAYS: u8 = 1;
@@ -72,6 +77,31 @@ pub fn parse_unban_custom_id(custom_id: &str) -> Option<UserId> {
         .strip_prefix(UNBAN_CUSTOM_ID_PREFIX)?
         .strip_prefix(':')?;
     suffix.parse::<u64>().ok().map(UserId::new)
+}
+
+/// Builds the manual-ban button `custom_id` for `user_id`.
+fn ban_custom_id(user_id: UserId) -> String {
+    format!("{BAN_CUSTOM_ID_PREFIX}:{user_id}")
+}
+
+/// Parses a manual-ban button `custom_id` (`uhp_ban:{user_id}`) into its target
+/// [`UserId`]. Returns `None` for any other `custom_id`.
+///
+/// The `uhp_ban` prefix is not a prefix of `uhp_unban` (they diverge at the
+/// fifth byte), so this never matches an unban id and vice versa.
+pub fn parse_ban_custom_id(custom_id: &str) -> Option<UserId> {
+    let suffix = custom_id
+        .strip_prefix(BAN_CUSTOM_ID_PREFIX)?
+        .strip_prefix(':')?;
+    suffix.parse::<u64>().ok().map(UserId::new)
+}
+
+/// Builds the action row carrying the `Unban` button for `user_id`.
+pub fn unban_action_row(user_id: UserId) -> CreateActionRow {
+    let button = CreateButton::new(unban_custom_id(user_id))
+        .style(ButtonStyle::Danger)
+        .label("Unban");
+    CreateActionRow::Buttons(vec![button])
 }
 
 /// Which honeypot fired, carried into the log embed.
@@ -152,12 +182,38 @@ fn build_ban_embed(target: &User, trigger: &BanTrigger) -> CreateEmbed {
 
 /// Builds the ban notification message: the embed plus an `Unban` button.
 fn build_ban_message(target: &User, trigger: &BanTrigger) -> CreateMessage {
-    let button = CreateButton::new(unban_custom_id(target.id))
-        .style(ButtonStyle::Danger)
-        .label("Unban");
-    let row = CreateActionRow::Buttons(vec![button]);
     CreateMessage::new()
         .embed(build_ban_embed(target, trigger))
+        .components(vec![unban_action_row(target.id)])
+}
+
+/// Builds the "untrusted bot" notice embed.
+///
+/// Unlike [`build_ban_embed`], no ban has happened yet: the bot tripped a
+/// honeypot but is not in the guild's trusted list, so a moderator must decide.
+fn build_pending_embed(target: &User, trigger: &BanTrigger) -> CreateEmbed {
+    CreateEmbed::new()
+        .title("🍯 Honeypot triggered — untrusted bot")
+        .description("This bot is not in the trusted list. Press **Ban** to remove it.")
+        .color(Colour::GOLD)
+        .field("User", target_field(target), false)
+        .field(
+            "Trigger",
+            format!("{} {}", trigger.kind(), trigger.detail()),
+            true,
+        )
+        .field("Bot", "Yes", true)
+        .timestamp(Timestamp::now())
+}
+
+/// Builds the untrusted-bot notice message: the pending embed plus a `Ban` button.
+fn build_pending_message(target: &User, trigger: &BanTrigger) -> CreateMessage {
+    let button = CreateButton::new(ban_custom_id(target.id))
+        .style(ButtonStyle::Danger)
+        .label("Ban");
+    let row = CreateActionRow::Buttons(vec![button]);
+    CreateMessage::new()
+        .embed(build_pending_embed(target, trigger))
         .components(vec![row])
 }
 
@@ -209,6 +265,75 @@ pub async fn execute_ban(
             "banned user but failed to post log notification"
         );
     }
+
+    Ok(())
+}
+
+/// Posts an "untrusted bot" notice to `log_channel_id` without banning.
+///
+/// Used when a *bot* (not in the guild's trusted list) trips a honeypot: rather
+/// than auto-banning — which would catch well-behaved bots that legitimately
+/// echo into a honeypot channel — the decision is deferred to a moderator via
+/// the `Ban` button on the notice (handled by [`confirm_bot_ban`]).
+///
+/// Shares [`HANDLED_BANS`] with [`execute_ban`] to dedupe: a bot claimed here is
+/// not notified again on repeat triggers, and a failed post releases the claim
+/// so a later trigger can retry.
+pub async fn execute_suspicious_bot_notice(
+    ctx: &Context,
+    guild_id: GuildId,
+    log_channel_id: ChannelId,
+    target: &User,
+    trigger: BanTrigger,
+) -> Result<(), HoneyPotError> {
+    if !claim_ban(guild_id, target.id) {
+        tracing::debug!(
+            user_id = %target.id,
+            "skipping duplicate suspicious-bot notice for already-handled user"
+        );
+        return Ok(());
+    }
+
+    tracing::warn!(
+        guild_id = %guild_id,
+        user_id = %target.id,
+        trigger = trigger.kind(),
+        "untrusted bot tripped honeypot; awaiting manual ban"
+    );
+
+    if let Err(error) = log_channel_id
+        .send_message(&ctx.http, build_pending_message(target, &trigger))
+        .await
+    {
+        forget_ban(guild_id, target.id);
+        return Err(error.into());
+    }
+
+    Ok(())
+}
+
+/// Bans `user_id` from `guild_id` after a moderator confirms an untrusted-bot
+/// notice, deleting [`DELETE_MESSAGE_DAYS`] of messages.
+///
+/// The `(guild, user)` pair is already claimed by [`execute_suspicious_bot_notice`];
+/// the claim is left in place so repeat triggers stay suppressed until an unban
+/// releases it. Unlike [`execute_ban`], this does not post a new log message —
+/// the interaction handler edits the existing notice in place.
+pub async fn confirm_bot_ban(
+    ctx: &Context,
+    guild_id: GuildId,
+    user_id: UserId,
+) -> Result<(), HoneyPotError> {
+    let reason = "Honeypot triggered (bot, manually confirmed)";
+    guild_id
+        .ban_with_reason(&ctx.http, user_id, DELETE_MESSAGE_DAYS, reason)
+        .await?;
+
+    tracing::info!(
+        guild_id = %guild_id,
+        user_id = %user_id,
+        "banned bot after manual confirmation"
+    );
 
     Ok(())
 }
@@ -291,6 +416,34 @@ mod tests {
         assert_eq!(parse_unban_custom_id("uhp_unban"), None);
         assert_eq!(parse_unban_custom_id("uhp_unban:"), None);
         assert_eq!(parse_unban_custom_id("uhp_unban:not_a_number"), None);
+    }
+
+    #[test]
+    fn ban_custom_id_format() {
+        assert_eq!(ban_custom_id(UserId::new(123)), "uhp_ban:123");
+    }
+
+    #[test]
+    fn parse_ban_custom_id_roundtrips() {
+        let id = UserId::new(123456789012345678);
+        assert_eq!(parse_ban_custom_id(&ban_custom_id(id)), Some(id));
+    }
+
+    #[test]
+    fn ban_and_unban_custom_ids_do_not_collide() {
+        let id = UserId::new(123456789012345678);
+        // Each parser must reject the other's id so the interaction dispatcher
+        // can tell a manual-ban click from an unban click.
+        assert_eq!(parse_unban_custom_id(&ban_custom_id(id)), None);
+        assert_eq!(parse_ban_custom_id(&unban_custom_id(id)), None);
+    }
+
+    #[test]
+    fn parse_ban_custom_id_rejects_non_matching() {
+        assert_eq!(parse_ban_custom_id("other_button:123"), None);
+        assert_eq!(parse_ban_custom_id("uhp_ban"), None);
+        assert_eq!(parse_ban_custom_id("uhp_ban:"), None);
+        assert_eq!(parse_ban_custom_id("uhp_ban:not_a_number"), None);
     }
 
     #[test]

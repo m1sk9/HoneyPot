@@ -29,6 +29,14 @@ pub struct GuildConfigEntry {
     /// Channels that trigger a ban when a message is posted.
     #[serde(default)]
     pub honeypot_channel_ids: Vec<u64>,
+    /// Bot user IDs exempt from the honeypot.
+    ///
+    /// A bot that trips a honeypot is normally not auto-banned but flagged for
+    /// manual review; bots listed here are ignored entirely, so well-behaved
+    /// bots (e.g. link expanders that echo into a honeypot channel) are never
+    /// flagged.
+    #[serde(default)]
+    pub trusted_bot_ids: Vec<u64>,
     /// Channel where ban notifications are sent.
     pub log_channel_id: u64,
 }
@@ -99,5 +107,21 @@ mod tests {
         let config: HoneyPotConfigFile = toml::from_str(toml_str).unwrap();
         assert!(config.guilds[0].honeypot_role_ids.is_empty());
         assert!(config.guilds[0].honeypot_channel_ids.is_empty());
+        assert!(config.guilds[0].trusted_bot_ids.is_empty());
+    }
+
+    #[test]
+    fn deserialize_trusted_bot_ids() {
+        let toml_str = r#"
+            [[guilds]]
+            guild_id        = 100000000000000000
+            trusted_bot_ids = [500000000000000000, 600000000000000000]
+            log_channel_id  = 400000000000000000
+        "#;
+        let config: HoneyPotConfigFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(
+            config.guilds[0].trusted_bot_ids,
+            vec![500000000000000000, 600000000000000000]
+        );
     }
 }

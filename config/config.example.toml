@@ -8,14 +8,21 @@
 # snowflake IDs are 17-19 digit numbers and never start with 0, so paste them
 # as-is (the values below are placeholders).
 
+# `trusted_bot_ids` lists bots exempt from the honeypot. A bot that trips a
+# honeypot is not auto-banned but flagged for manual review; bots listed here
+# are ignored entirely (e.g. a link-expander bot that echoes into a honeypot
+# channel). Non-bot accounts are always banned immediately.
+
 [[guilds]]
 guild_id             = 100000000000000000
 honeypot_role_ids    = [200000000000000000]
 honeypot_channel_ids = [300000000000000000]
+trusted_bot_ids      = [500000000000000000]
 log_channel_id       = 400000000000000000
 
 [[guilds]]
 guild_id             = 111111111111111111
 honeypot_role_ids    = [222222222222222222]
 honeypot_channel_ids = []
+trusted_bot_ids      = []
 log_channel_id       = 444444444444444444

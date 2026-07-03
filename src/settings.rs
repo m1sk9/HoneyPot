@@ -6,7 +6,7 @@
 
 use crate::config::{self, GuildConfigEntry};
 use crate::error::HoneyPotError;
-use serenity::all::{ChannelId, GuildId, RoleId};
+use serenity::all::{ChannelId, GuildId, RoleId, UserId};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
@@ -32,6 +32,8 @@ pub struct GuildConfig {
     pub honeypot_role_ids: Vec<RoleId>,
     /// Channels that trigger a ban when a message is posted.
     pub honeypot_channel_ids: Vec<ChannelId>,
+    /// Bot user IDs exempt from the honeypot (never flagged or banned).
+    pub trusted_bot_ids: Vec<UserId>,
     /// Channel where ban notifications are sent.
     pub log_channel_id: ChannelId,
 }
@@ -49,6 +51,7 @@ impl From<GuildConfigEntry> for GuildConfig {
                 .into_iter()
                 .map(ChannelId::new)
                 .collect(),
+            trusted_bot_ids: entry.trusted_bot_ids.into_iter().map(UserId::new).collect(),
             log_channel_id: ChannelId::new(entry.log_channel_id),
         }
     }
@@ -104,6 +107,7 @@ mod tests {
             guild_id,
             honeypot_role_ids: vec![200000000000000000],
             honeypot_channel_ids: vec![300000000000000000],
+            trusted_bot_ids: vec![500000000000000000],
             log_channel_id: 400000000000000000,
         }
     }
@@ -120,6 +124,7 @@ mod tests {
             guild.honeypot_channel_ids,
             vec![ChannelId::new(300000000000000000)]
         );
+        assert_eq!(guild.trusted_bot_ids, vec![UserId::new(500000000000000000)]);
         assert_eq!(guild.log_channel_id, ChannelId::new(400000000000000000));
     }
 

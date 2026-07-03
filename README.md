@@ -96,12 +96,21 @@ example.
 guild_id             = 100000000000000000  # the guild (server) ID
 honeypot_role_ids    = [200000000000000000] # roles that trigger a ban when acquired
 honeypot_channel_ids = [300000000000000000] # channels that trigger a ban when posted in
+trusted_bot_ids      = [500000000000000000] # bots exempt from the honeypot
 log_channel_id       = 400000000000000000  # channel where ban notifications are sent
 ```
 
-- `honeypot_role_ids` and `honeypot_channel_ids` are optional and default to empty.
+- `honeypot_role_ids`, `honeypot_channel_ids`, and `trusted_bot_ids` are
+  optional and default to empty.
 - IDs are TOML integers, so they must not have leading zeros. Discord snowflake
   IDs are 17–19 digit numbers and never start with `0`, so paste them as-is.
+
+When a honeypot fires, a regular (non-bot) account is banned immediately. A bot
+is handled more cautiously, since bots can only be added by an administrator:
+a bot listed in `trusted_bot_ids` is ignored, and any other bot is posted to the
+log channel with a **Ban** button for manual review instead of being
+auto-banned. This keeps well-behaved bots — for example a link expander that
+echoes a message into a honeypot channel — from being caught.
 
 By default the configuration is read from `config/config.toml` (relative to the
 working directory). Override the path with the `HONEYPOT_CONFIG_PATH`

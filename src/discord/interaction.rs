@@ -1,11 +1,12 @@
 //! Component interaction handling.
 //!
-//! Currently handles the `Unban` button attached to honeypot ban log embeds
-//! (see [`crate::discord::ban`]). Only members with the `BAN_MEMBERS`
-//! permission may lift a ban; unauthorized clicks are rejected with an
-//! ephemeral message. A successful unban releases the offender's claim (via
-//! [`ban::forget_ban`]) so they can be re-banned if they trip a honeypot again,
-//! and rewrites the log embed to record who lifted the ban.
+//! Handles the buttons attached to honeypot log embeds (see
+//! [`crate::discord::ban`]): the `Unban` button on a ban notice, and the `Ban`
+//! button on an untrusted-bot notice. Both require the clicker to hold the
+//! `BAN_MEMBERS` permission; unauthorized clicks are rejected with an ephemeral
+//! message. A successful unban releases the offender's claim (via
+//! [`ban::forget_ban`]) so they can be re-banned if they trip a honeypot again.
+//! Each action rewrites the log embed to record who took it.
 
 use crate::discord::ban;
 use serenity::all::{
@@ -13,15 +14,21 @@ use serenity::all::{
     CreateInteractionResponseMessage, Mentionable, Permissions, UserId,
 };
 
-/// Handles a component interaction, dispatching the `Unban` button.
+/// Handles a component interaction, dispatching the honeypot log buttons.
 ///
-/// Non-unban components are ignored. Any Discord error while responding is
-/// logged and swallowed, matching the fire-and-forget style of the gateway
-/// event handlers.
+/// Components other than the `Unban`/`Ban` buttons are ignored. Any Discord
+/// error while responding is logged and swallowed, matching the fire-and-forget
+/// style of the gateway event handlers.
 pub async fn handle_component(ctx: &Context, component: &ComponentInteraction) {
-    let Some(target_id) = ban::parse_unban_custom_id(&component.data.custom_id) else {
-        return;
-    };
+    if let Some(target_id) = ban::parse_unban_custom_id(&component.data.custom_id) {
+        handle_unban(ctx, component, target_id).await;
+    } else if let Some(target_id) = ban::parse_ban_custom_id(&component.data.custom_id) {
+        handle_manual_ban(ctx, component, target_id).await;
+    }
+}
+
+/// Lifts the ban on `target_id` in response to the `Unban` button.
+async fn handle_unban(ctx: &Context, component: &ComponentInteraction, target_id: UserId) {
     let Some(guild_id) = component.guild_id else {
         return;
     };
@@ -76,6 +83,57 @@ pub async fn handle_component(ctx: &Context, component: &ComponentInteraction) {
     }
 }
 
+/// Bans `target_id` in response to the `Ban` button on an untrusted-bot notice.
+///
+/// Swaps the pending notice's `Ban` button for an `Unban` button so a mistaken
+/// confirmation can be reversed, matching the auto-ban log embeds.
+async fn handle_manual_ban(ctx: &Context, component: &ComponentInteraction, target_id: UserId) {
+    let Some(guild_id) = component.guild_id else {
+        return;
+    };
+
+    if !has_ban_permission(component) {
+        respond_ephemeral(
+            ctx,
+            component,
+            "You need the Ban Members permission to ban.",
+        )
+        .await;
+        return;
+    }
+
+    if let Err(error) = ban::confirm_bot_ban(ctx, guild_id, target_id).await {
+        tracing::error!(
+            %error,
+            user_id = %target_id,
+            "failed to ban bot from manual ban button"
+        );
+        respond_ephemeral(ctx, component, "Failed to ban the bot. Please try again.").await;
+        return;
+    }
+
+    tracing::info!(
+        guild_id = %guild_id,
+        user_id = %target_id,
+        moderator_id = %component.user.id,
+        "banned bot via manual ban button"
+    );
+
+    let embed = manually_banned_embed(component, target_id);
+    let response = CreateInteractionResponse::UpdateMessage(
+        CreateInteractionResponseMessage::new()
+            .embed(embed)
+            .components(vec![ban::unban_action_row(target_id)]),
+    );
+    if let Err(error) = component.create_response(&ctx.http, response).await {
+        tracing::error!(
+            %error,
+            user_id = %target_id,
+            "banned bot but failed to update log embed"
+        );
+    }
+}
+
 /// Whether the clicking member holds the `BAN_MEMBERS` permission.
 ///
 /// Discord populates `member.permissions` with the interacting member's
@@ -107,6 +165,28 @@ fn resolved_embed(component: &ComponentInteraction, target_id: UserId) -> Create
     base.title("🍯 Honeypot ban lifted")
         .color(Colour::DARK_GREEN)
         .field("Unbanned by", component.user.mention().to_string(), false)
+}
+
+/// Builds the "bot banned" embed shown after a manual ban confirmation.
+///
+/// Reuses the pending notice embed (preserving the trigger details) when
+/// present, recoloring it, retitling it, replacing the pending description, and
+/// appending who confirmed the ban.
+fn manually_banned_embed(component: &ComponentInteraction, target_id: UserId) -> CreateEmbed {
+    let base = component
+        .message
+        .embeds
+        .first()
+        .cloned()
+        .map(CreateEmbed::from)
+        .unwrap_or_else(|| {
+            CreateEmbed::new().field("User", target_id.mention().to_string(), false)
+        });
+
+    base.title("🍯 Honeypot triggered — bot banned")
+        .description("Banned after manual review.")
+        .color(Colour::RED)
+        .field("Banned by", component.user.mention().to_string(), false)
 }
 
 /// Sends an ephemeral text response, logging any failure.
