@@ -2,14 +2,20 @@
 //!
 //! Handles the two honeypot triggers — acquiring a honeypot role
 //! (`guild_member_update`) and posting in a honeypot channel (`message`) — by
-//! looking up the guild's configuration and delegating to [`ban::execute_ban`].
+//! looking up the guild's configuration and dispatching via [`act_on_trigger`].
 //! The bot's own account is captured in `ready` and never banned.
+//!
+//! A non-bot offender is banned immediately. A bot is treated more cautiously:
+//! trusted bots are ignored, and any other bot is flagged for manual review
+//! rather than auto-banned, so well-behaved bots that legitimately post into a
+//! honeypot channel are not caught.
 
 use crate::discord::ban::{self, BanTrigger, is_honeypot_channel, newly_acquired_honeypot_role};
 use crate::discord::interaction;
-use crate::settings::HoneyPotConfig;
+use crate::settings::{GuildConfig, HoneyPotConfig};
 use serenity::all::{
-    Context, EventHandler, GuildMemberUpdateEvent, Interaction, Member, Message, Ready, UserId,
+    Context, EventHandler, GuildId, GuildMemberUpdateEvent, Interaction, Member, Message, Ready,
+    User, UserId,
 };
 use std::sync::OnceLock;
 
@@ -22,6 +28,40 @@ static BOT_USER_ID: OnceLock<UserId> = OnceLock::new();
 /// harmless: no gateway events arrive before `ready`.
 fn is_self(id: UserId) -> bool {
     BOT_USER_ID.get() == Some(&id)
+}
+
+/// Acts on a confirmed honeypot trigger for `user` in `guild`.
+///
+/// A non-bot offender is banned immediately. A bot in the guild's trusted list
+/// is ignored; any other bot is flagged for manual review via
+/// [`ban::execute_suspicious_bot_notice`] instead of being auto-banned.
+async fn act_on_trigger(
+    ctx: &Context,
+    guild_id: GuildId,
+    guild: &GuildConfig,
+    user: &User,
+    trigger: BanTrigger,
+) {
+    let result = if user.bot {
+        if guild.trusted_bot_ids.contains(&user.id) {
+            tracing::debug!(
+                user_id = %user.id,
+                "ignoring trusted bot that tripped honeypot"
+            );
+            return;
+        }
+        ban::execute_suspicious_bot_notice(ctx, guild_id, guild.log_channel_id, user, trigger).await
+    } else {
+        ban::execute_ban(ctx, guild_id, guild.log_channel_id, user, trigger).await
+    };
+
+    if let Err(error) = result {
+        tracing::error!(
+            %error,
+            user_id = %user.id,
+            "failed to handle honeypot trigger"
+        );
+    }
 }
 
 /// Event handler for HoneyPot.
@@ -42,7 +82,9 @@ impl EventHandler for HoneyPotEventHandler {
         _new: Option<Member>,
         event: GuildMemberUpdateEvent,
     ) {
-        if is_self(event.user.id) {
+        let user = event.user;
+
+        if is_self(user.id) {
             return;
         }
         let Some(guild) = HoneyPotConfig::get().guild(event.guild_id) else {
@@ -56,21 +98,7 @@ impl EventHandler for HoneyPotEventHandler {
             return;
         };
 
-        if let Err(error) = ban::execute_ban(
-            &ctx,
-            event.guild_id,
-            guild.log_channel_id,
-            &event.user,
-            BanTrigger::Role(role),
-        )
-        .await
-        {
-            tracing::error!(
-                %error,
-                user_id = %event.user.id,
-                "failed to ban member on honeypot role"
-            );
-        }
+        act_on_trigger(&ctx, event.guild_id, guild, &user, BanTrigger::Role(role)).await;
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
@@ -83,7 +111,9 @@ impl EventHandler for HoneyPotEventHandler {
         let Some(guild_id) = new_message.guild_id else {
             return;
         };
-        if is_self(new_message.author.id) {
+
+        let user = new_message.author;
+        if is_self(user.id) {
             return;
         }
         let Some(guild) = HoneyPotConfig::get().guild(guild_id) else {
@@ -93,20 +123,13 @@ impl EventHandler for HoneyPotEventHandler {
             return;
         }
 
-        if let Err(error) = ban::execute_ban(
+        act_on_trigger(
             &ctx,
             guild_id,
-            guild.log_channel_id,
-            &new_message.author,
+            guild,
+            &user,
             BanTrigger::Channel(new_message.channel_id),
         )
-        .await
-        {
-            tracing::error!(
-                %error,
-                user_id = %new_message.author.id,
-                "failed to ban author on honeypot channel"
-            );
-        }
+        .await;
     }
 }
