@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.1.0...honeypot-v0.2.0) (2026-07-03)
+
+
+### Features
+
+* defer honeypot bans for untrusted bots to manual review ([#14](https://github.com/m1sk9/HoneyPot/issues/14)) ([4da4054](https://github.com/m1sk9/HoneyPot/commit/4da4054828075a609a4121d8531e518511ececcd))
+
 ## 0.1.0 (2026-07-02)
 
 
