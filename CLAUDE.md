@@ -42,6 +42,17 @@ refuses the connection. `MESSAGE_CONTENT` is requested so a channel-triggered
 ban can log the offending message for moderator review; the content is only ever
 read to populate that log embed.
 
+### Dry-run mode
+
+Set **`HONEYPOT_DRY_RUN=1`** (or `true`) to debug without a throwaway account.
+In dry-run the three destructive Discord calls (`ban_with_reason` in `execute_ban`
+and `confirm_bot_ban`, `unban` in `perform_unban`) are skipped and treated as
+success, while detection, log-embed posting, buttons, the two-step confirmation,
+embed edits, and `HANDLED_BANS` claim/release all run for real. So you can trip a
+honeypot on your own account and watch the whole flow — the log embed carries a
+`⚠ DRY-RUN` footer — without actually being banned. The flag is read once at
+startup via `settings::dry_run()`; a startup `warn!` line confirms it is active.
+
 ## Architecture
 
 Data flows in one direction: TOML file → raw config → runtime settings → event
@@ -53,7 +64,8 @@ handlers → ban module → Discord.
   stores them in a global `OnceLock<HoneyPotConfig>` keyed by `GuildId` for O(1)
   lookup. `HoneyPotConfig::init()` is called once from `main`; `::get()` panics
   if called before init. Config path defaults to `config/config.toml`, overridable
-  via `HONEYPOT_CONFIG_PATH`.
+  via `HONEYPOT_CONFIG_PATH`. Also owns `dry_run()` — the cached `HONEYPOT_DRY_RUN`
+  flag that the ban paths consult to skip the actual Discord ban/unban calls.
 - **`src/main.rs`** — bootstraps `.env` (missing file is not an error), JSON
   `tracing` logging (`RUST_LOG`, default `honeypot=info`), config, and the
   serenity client with the four gateway intents.

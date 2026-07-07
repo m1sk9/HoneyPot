@@ -19,6 +19,32 @@ const CONFIG_PATH_ENV: &str = "HONEYPOT_CONFIG_PATH";
 /// Default configuration file path used when [`CONFIG_PATH_ENV`] is unset.
 const DEFAULT_CONFIG_PATH: &str = "config/config.toml";
 
+/// Environment variable that enables dry-run mode (bans/unbans are simulated).
+const DRY_RUN_ENV: &str = "HONEYPOT_DRY_RUN";
+
+/// Cached dry-run flag, read once from the environment.
+static DRY_RUN: OnceLock<bool> = OnceLock::new();
+
+/// Parses a dry-run env value: enabled on `1`/`true` (case-insensitive, trimmed).
+fn parse_dry_run(value: &str) -> bool {
+    matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true")
+}
+
+/// Whether dry-run mode is enabled.
+///
+/// In dry-run, the ban/unban HTTP calls are skipped (treated as success) but
+/// every other path — detection, log embeds, buttons, and the [`crate::discord::ban`]
+/// claim tracking — runs for real, so the full flow can be exercised on a normal
+/// account without anyone actually being banned. Read once from [`DRY_RUN_ENV`]
+/// and cached; the value is fixed for the lifetime of the process.
+pub fn dry_run() -> bool {
+    *DRY_RUN.get_or_init(|| {
+        std::env::var(DRY_RUN_ENV)
+            .map(|value| parse_dry_run(&value))
+            .unwrap_or(false)
+    })
+}
+
 /// Runtime configuration for all guilds served by this deployment.
 #[derive(Debug)]
 pub struct HoneyPotConfig {
@@ -139,5 +165,22 @@ mod tests {
         let config = HoneyPotConfig::from_entries(vec![entry(1), entry(2)]);
         assert!(config.guild(GuildId::new(1)).is_some());
         assert!(config.guild(GuildId::new(2)).is_some());
+    }
+
+    #[test]
+    fn parse_dry_run_enabled_values() {
+        for value in ["1", "true", "TRUE", " true ", "True"] {
+            assert!(parse_dry_run(value), "expected {value:?} to enable dry-run");
+        }
+    }
+
+    #[test]
+    fn parse_dry_run_disabled_values() {
+        for value in ["0", "false", "", "yes", "on", "off"] {
+            assert!(
+                !parse_dry_run(value),
+                "expected {value:?} to leave dry-run disabled"
+            );
+        }
     }
 }
