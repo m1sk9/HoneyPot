@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.0](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.2.0...honeypot-v0.3.0) (2026-07-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* log the offending message on channel-triggered honeypot bans ([#19](https://github.com/m1sk9/HoneyPot/issues/19))
+
+### Features
+
+* add dry-run mode to simulate bans without executing them ([#20](https://github.com/m1sk9/HoneyPot/issues/20)) ([a7293e3](https://github.com/m1sk9/HoneyPot/commit/a7293e337f047bb73de592abc0242d70fd25325d))
+* enrich honeypot ban log embed with account signals ([#21](https://github.com/m1sk9/HoneyPot/issues/21)) ([83231d4](https://github.com/m1sk9/HoneyPot/commit/83231d44fa01af63827add0d0f779df80499859b))
+* localize log embeds and button responses per guild (en/ja) ([#22](https://github.com/m1sk9/HoneyPot/issues/22)) ([1b07774](https://github.com/m1sk9/HoneyPot/commit/1b0777459068ec39eaf4ae2ac2d05a78424115d6))
+* log the offending message on channel-triggered honeypot bans ([#19](https://github.com/m1sk9/HoneyPot/issues/19)) ([81c2b4d](https://github.com/m1sk9/HoneyPot/commit/81c2b4d1ae32ed31b6ce8bb69b3d8ee78e4fd3eb))
+* require confirmation before unban and manual ban actions ([#17](https://github.com/m1sk9/HoneyPot/issues/17)) ([ce16b20](https://github.com/m1sk9/HoneyPot/commit/ce16b20136eb0dca584635bfae899ea19dcf6569))
+
 ## [0.2.0](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.1.0...honeypot-v0.2.0) (2026-07-03)
 
 
