@@ -14,11 +14,22 @@
 //! original log embed to record who took it.
 
 use crate::discord::ban;
+use crate::i18n::{Language, Messages};
+use crate::settings::HoneyPotConfig;
 use serenity::all::{
     ChannelId, Colour, ComponentInteraction, Context, CreateEmbed, CreateInteractionResponse,
-    CreateInteractionResponseMessage, EditMessage, Mentionable, MessageId, Permissions, User,
-    UserId,
+    CreateInteractionResponseMessage, EditMessage, Embed, GuildId, Mentionable, MessageId,
+    Permissions, User, UserId,
 };
+
+/// Resolves the display language for `guild_id` from the global config, falling
+/// back to the default when the guild isn't configured.
+fn language_for(guild_id: GuildId) -> Language {
+    HoneyPotConfig::get()
+        .guild(guild_id)
+        .map(|guild| guild.language)
+        .unwrap_or_default()
+}
 
 /// Handles a component interaction, dispatching the honeypot log buttons.
 ///
@@ -51,28 +62,25 @@ pub async fn handle_component(ctx: &Context, component: &ComponentInteraction) {
 /// unauthorized user never even sees the prompt. The current message id is
 /// carried into the confirm button so [`perform_unban`] can edit this log embed.
 async fn prompt_unban(ctx: &Context, component: &ComponentInteraction, target_id: UserId) {
-    if component.guild_id.is_none() {
+    let Some(guild_id) = component.guild_id else {
         return;
-    }
+    };
+    let language = language_for(guild_id);
+    let msg = language.messages();
 
     if !has_ban_permission(component) {
-        respond_ephemeral(
-            ctx,
-            component,
-            "You need the Ban Members permission to unban.",
-        )
-        .await;
+        respond_ephemeral(ctx, component, msg.perm_needed_unban).await;
         return;
     }
 
-    let row = ban::confirm_unban_action_row(target_id, component.message.id);
+    let row = ban::confirm_unban_action_row(target_id, component.message.id, language);
     let response = CreateInteractionResponse::Message(
         CreateInteractionResponseMessage::new()
             .ephemeral(true)
-            .content(format!(
-                "Unban {}? This will lift the ban.",
-                target_id.mention()
-            ))
+            .content(
+                msg.confirm_unban_prompt
+                    .replace("{}", &target_id.mention().to_string()),
+            )
             .components(vec![row]),
     );
     if let Err(error) = component.create_response(&ctx.http, response).await {
@@ -84,28 +92,25 @@ async fn prompt_unban(ctx: &Context, component: &ComponentInteraction, target_id
 /// an untrusted-bot notice. The actual ban waits for the `Confirm` click (see
 /// [`perform_ban`]).
 async fn prompt_ban(ctx: &Context, component: &ComponentInteraction, target_id: UserId) {
-    if component.guild_id.is_none() {
+    let Some(guild_id) = component.guild_id else {
         return;
-    }
+    };
+    let language = language_for(guild_id);
+    let msg = language.messages();
 
     if !has_ban_permission(component) {
-        respond_ephemeral(
-            ctx,
-            component,
-            "You need the Ban Members permission to ban.",
-        )
-        .await;
+        respond_ephemeral(ctx, component, msg.perm_needed_ban).await;
         return;
     }
 
-    let row = ban::confirm_ban_action_row(target_id, component.message.id);
+    let row = ban::confirm_ban_action_row(target_id, component.message.id, language);
     let response = CreateInteractionResponse::Message(
         CreateInteractionResponseMessage::new()
             .ephemeral(true)
-            .content(format!(
-                "Ban {}? This will remove the bot.",
-                target_id.mention()
-            ))
+            .content(
+                msg.confirm_ban_prompt
+                    .replace("{}", &target_id.mention().to_string()),
+            )
             .components(vec![row]),
     );
     if let Err(error) = component.create_response(&ctx.http, response).await {
@@ -128,14 +133,11 @@ async fn perform_unban(
     let Some(guild_id) = component.guild_id else {
         return;
     };
+    let language = language_for(guild_id);
+    let msg = language.messages();
 
     if !has_ban_permission(component) {
-        respond_ephemeral(
-            ctx,
-            component,
-            "You need the Ban Members permission to unban.",
-        )
-        .await;
+        respond_ephemeral(ctx, component, msg.perm_needed_unban).await;
         return;
     }
 
@@ -151,12 +153,7 @@ async fn perform_unban(
             user_id = %target_id,
             "failed to unban member from unban button"
         );
-        respond_ephemeral(
-            ctx,
-            component,
-            "Failed to unban the user. Please try again.",
-        )
-        .await;
+        respond_ephemeral(ctx, component, msg.unban_failed).await;
         return;
     }
 
@@ -173,12 +170,13 @@ async fn perform_unban(
     ack_confirmation(
         ctx,
         component,
-        &format!("Unbanned {}.", target_id.mention()),
+        &msg.unbanned_ack
+            .replace("{}", &target_id.mention().to_string()),
     )
     .await;
 
     let base = fetch_base_embed(ctx, component.channel_id, message_id).await;
-    let embed = resolved_embed(base, target_id, &component.user);
+    let embed = resolved_embed(base, target_id, &component.user, language);
     edit_log_message(
         ctx,
         component.channel_id,
@@ -204,14 +202,11 @@ async fn perform_ban(
     let Some(guild_id) = component.guild_id else {
         return;
     };
+    let language = language_for(guild_id);
+    let msg = language.messages();
 
     if !has_ban_permission(component) {
-        respond_ephemeral(
-            ctx,
-            component,
-            "You need the Ban Members permission to ban.",
-        )
-        .await;
+        respond_ephemeral(ctx, component, msg.perm_needed_ban).await;
         return;
     }
 
@@ -221,7 +216,7 @@ async fn perform_ban(
             user_id = %target_id,
             "failed to ban bot from manual ban button"
         );
-        respond_ephemeral(ctx, component, "Failed to ban the bot. Please try again.").await;
+        respond_ephemeral(ctx, component, msg.ban_failed).await;
         return;
     }
 
@@ -232,16 +227,22 @@ async fn perform_ban(
         "banned bot via manual ban button"
     );
 
-    ack_confirmation(ctx, component, &format!("Banned {}.", target_id.mention())).await;
+    ack_confirmation(
+        ctx,
+        component,
+        &msg.banned_ack
+            .replace("{}", &target_id.mention().to_string()),
+    )
+    .await;
 
     let base = fetch_base_embed(ctx, component.channel_id, message_id).await;
-    let embed = manually_banned_embed(base, target_id, &component.user);
+    let embed = manually_banned_embed(base, target_id, &component.user, language);
     edit_log_message(
         ctx,
         component.channel_id,
         message_id,
         embed,
-        vec![ban::unban_action_row(target_id)],
+        vec![ban::unban_action_row(target_id, language)],
         target_id,
     )
     .await;
@@ -250,9 +251,14 @@ async fn perform_ban(
 /// Dismisses the ephemeral confirmation prompt without acting, in response to
 /// the `Cancel` button.
 async fn handle_cancel(ctx: &Context, component: &ComponentInteraction) {
+    let msg = component
+        .guild_id
+        .map(language_for)
+        .unwrap_or_default()
+        .messages();
     let response = CreateInteractionResponse::UpdateMessage(
         CreateInteractionResponseMessage::new()
-            .content("Cancelled.")
+            .content(msg.cancelled)
             .components(vec![]),
     );
     if let Err(error) = component.create_response(&ctx.http, response).await {
@@ -279,13 +285,16 @@ async fn ack_confirmation(ctx: &Context, component: &ComponentInteraction, conte
 /// Returns `None` (rebuild from scratch) if the message can't be fetched or has
 /// no embed; the confirmation prompt lives in the same channel, so `channel_id`
 /// always points at the log channel.
+///
+/// The raw [`Embed`] is returned (not a `CreateEmbed`) so the rewrite builders
+/// can inspect and drop individual fields — see [`without_warnings_field`].
 async fn fetch_base_embed(
     ctx: &Context,
     channel_id: ChannelId,
     message_id: MessageId,
-) -> Option<CreateEmbed> {
+) -> Option<Embed> {
     match channel_id.message(&ctx.http, message_id).await {
-        Ok(message) => message.embeds.into_iter().next().map(CreateEmbed::from),
+        Ok(message) => message.embeds.into_iter().next(),
         Err(error) => {
             tracing::warn!(
                 %error,
@@ -295,6 +304,17 @@ async fn fetch_base_embed(
             None
         }
     }
+}
+
+/// Drops the aggregated "Warnings" field from a reused log embed.
+///
+/// The lifted-ban embed omits it — the risk signals were decision aids for the
+/// ban, not for the resolved state — while the manual-ban rewrite keeps them.
+fn without_warnings_field(mut embed: Embed, msg: &Messages) -> Embed {
+    embed
+        .fields
+        .retain(|field| field.name != msg.field_warnings);
+    embed
 }
 
 /// Edits the original log message in place with a new embed and button set.
@@ -331,22 +351,31 @@ fn has_ban_permission(component: &ComponentInteraction) -> bool {
 /// Builds the "ban lifted" embed shown after a successful unban.
 ///
 /// Reuses the original log embed (`base`, preserving the trigger details) when
-/// present, recoloring it, retitling it, and appending who lifted the ban.
-/// Falls back to a minimal embed if the original message carried none.
+/// present, recoloring it, retitling it, and appending who lifted the ban. The
+/// aggregated "Warnings" field is dropped — the risk signals justified the ban,
+/// not the resolved state. Falls back to a minimal embed if the message carried none.
 pub(crate) fn resolved_embed(
-    base: Option<CreateEmbed>,
+    base: Option<Embed>,
     target_id: UserId,
     moderator: &User,
+    language: Language,
 ) -> CreateEmbed {
-    let base = base.unwrap_or_else(|| {
-        CreateEmbed::new().field("User", target_id.mention().to_string(), false)
-    });
+    let msg = language.messages();
+    let base = base
+        .map(|embed| CreateEmbed::from(without_warnings_field(embed, msg)))
+        .unwrap_or_else(|| {
+            CreateEmbed::new().field(msg.field_user, target_id.mention().to_string(), false)
+        });
 
     let embed = base
-        .title("🍯 Honeypot ban lifted")
+        .title(msg.lifted_title)
         .color(Colour::DARK_GREEN)
-        .field("Unbanned by", moderator.mention().to_string(), false);
-    ban::apply_dry_run_marker(embed)
+        .field(
+            msg.field_unbanned_by,
+            moderator.mention().to_string(),
+            false,
+        );
+    ban::apply_dry_run_marker(embed, msg)
 }
 
 /// Builds the "bot banned" embed shown after a manual ban confirmation.
@@ -355,20 +384,22 @@ pub(crate) fn resolved_embed(
 /// present, recoloring it, retitling it, replacing the pending description, and
 /// appending who confirmed the ban.
 pub(crate) fn manually_banned_embed(
-    base: Option<CreateEmbed>,
+    base: Option<Embed>,
     target_id: UserId,
     moderator: &User,
+    language: Language,
 ) -> CreateEmbed {
-    let base = base.unwrap_or_else(|| {
-        CreateEmbed::new().field("User", target_id.mention().to_string(), false)
+    let msg = language.messages();
+    let base = base.map(CreateEmbed::from).unwrap_or_else(|| {
+        CreateEmbed::new().field(msg.field_user, target_id.mention().to_string(), false)
     });
 
     let embed = base
-        .title("🍯 Honeypot triggered — bot banned")
-        .description("Banned after manual review.")
+        .title(msg.bot_banned_title)
+        .description(msg.bot_banned_desc)
         .color(Colour::RED)
-        .field("Banned by", moderator.mention().to_string(), false);
-    ban::apply_dry_run_marker(embed)
+        .field(msg.field_banned_by, moderator.mention().to_string(), false);
+    ban::apply_dry_run_marker(embed, msg)
 }
 
 /// Sends an ephemeral text response, logging any failure.
@@ -380,5 +411,51 @@ async fn respond_ephemeral(ctx: &Context, component: &ComponentInteraction, cont
     );
     if let Err(error) = component.create_response(&ctx.http, response).await {
         tracing::error!(%error, "failed to send ephemeral interaction response");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serenity::all::EmbedField;
+
+    /// Builds an embed carrying the given field names (values are placeholders).
+    fn embed_with_fields(names: &[&str]) -> Embed {
+        let mut embed = Embed::default();
+        embed.fields = names
+            .iter()
+            .map(|name| EmbedField::new(name.to_string(), "value", false))
+            .collect();
+        embed
+    }
+
+    #[test]
+    fn without_warnings_field_drops_only_the_warnings_field() {
+        let msg = Language::En.messages();
+        let embed = embed_with_fields(&[msg.field_user, msg.field_warnings, msg.field_trigger]);
+        let stripped = without_warnings_field(embed, msg);
+        let names: Vec<&str> = stripped.fields.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, vec![msg.field_user, msg.field_trigger]);
+    }
+
+    #[test]
+    fn without_warnings_field_is_noop_when_absent() {
+        let msg = Language::En.messages();
+        let embed = embed_with_fields(&[msg.field_user, msg.field_trigger]);
+        let stripped = without_warnings_field(embed, msg);
+        assert_eq!(stripped.fields.len(), 2);
+    }
+
+    #[test]
+    fn without_warnings_field_matches_the_active_language() {
+        // A JA warnings field must not be stripped when the EN label is used, and
+        // vice versa — the label is language-specific.
+        let ja = Language::Ja.messages();
+        let embed = embed_with_fields(&[ja.field_warnings]);
+        assert_eq!(without_warnings_field(embed, ja).fields.len(), 0);
+
+        let embed = embed_with_fields(&[ja.field_warnings]);
+        let en = Language::En.messages();
+        assert_eq!(without_warnings_field(embed, en).fields.len(), 1);
     }
 }

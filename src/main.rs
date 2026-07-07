@@ -17,6 +17,7 @@
 mod config;
 mod discord;
 mod error;
+mod i18n;
 mod settings;
 
 use crate::error::HoneyPotError;

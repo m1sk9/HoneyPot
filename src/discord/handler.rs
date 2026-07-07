@@ -60,10 +60,20 @@ async fn act_on_trigger(
             user,
             trigger,
             offender,
+            guild.language,
         )
         .await
     } else {
-        ban::execute_ban(ctx, guild_id, guild.log_channel_id, user, trigger, offender).await
+        ban::execute_ban(
+            ctx,
+            guild_id,
+            guild.log_channel_id,
+            user,
+            trigger,
+            offender,
+            guild.language,
+        )
+        .await
     };
 
     if let Err(error) = result {

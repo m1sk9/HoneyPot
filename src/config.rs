@@ -5,6 +5,7 @@
 //! serenity ID types in [`crate::settings`].
 
 use crate::error::HoneyPotError;
+use crate::i18n::Language;
 use serde::Deserialize;
 
 /// The top-level structure of `config.toml`.
@@ -39,6 +40,10 @@ pub struct GuildConfigEntry {
     pub trusted_bot_ids: Vec<u64>,
     /// Channel where ban notifications are sent.
     pub log_channel_id: u64,
+    /// Language for this guild's moderator-facing text (log embeds and button
+    /// responses). Defaults to English when omitted.
+    #[serde(default)]
+    pub language: Language,
 }
 
 /// Reads and parses the configuration file at `path`.
@@ -108,6 +113,29 @@ mod tests {
         assert!(config.guilds[0].honeypot_role_ids.is_empty());
         assert!(config.guilds[0].honeypot_channel_ids.is_empty());
         assert!(config.guilds[0].trusted_bot_ids.is_empty());
+    }
+
+    #[test]
+    fn deserialize_language_defaults_to_english() {
+        let toml_str = r#"
+            [[guilds]]
+            guild_id       = 100000000000000000
+            log_channel_id = 400000000000000000
+        "#;
+        let config: HoneyPotConfigFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.guilds[0].language, Language::En);
+    }
+
+    #[test]
+    fn deserialize_explicit_language() {
+        let toml_str = r#"
+            [[guilds]]
+            guild_id       = 100000000000000000
+            log_channel_id = 400000000000000000
+            language       = "ja"
+        "#;
+        let config: HoneyPotConfigFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.guilds[0].language, Language::Ja);
     }
 
     #[test]
