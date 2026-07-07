@@ -128,6 +128,12 @@ environment variable.
 | `HONEYPOT_BOT_TOKEN`   | Discord bot token. **Required.**                                                | —                    |
 | `HONEYPOT_CONFIG_PATH` | Path to the guild configuration file.                                           | `config/config.toml` |
 | `RUST_LOG`             | Log level filter (same syntax as `tracing`). Overrides the built-in default.    | `honeypot=info`      |
+| `HONEYPOT_DRY_RUN`     | Simulate bans/unbans (`1`/`true`): run the full flow but skip the actual ban.   | off                  |
+
+When `HONEYPOT_DRY_RUN` is enabled, detection, log embeds, and buttons all run
+normally, but no member is banned or unbanned — the log embed shows a `⚠ DRY-RUN`
+footer. This lets you debug the whole flow on your own account without needing a
+throwaway account.
 
 For local development, copy [`.env.example`](./.env.example) to `.env`; it is
 loaded automatically at startup. In production, supply these as real environment

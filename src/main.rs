@@ -44,6 +44,11 @@ async fn main() -> Result<(), HoneyPotError> {
     HoneyPotConfig::init()?;
     tracing::debug!("Config: {:?}", HoneyPotConfig::get());
 
+    // Priming the cached flag here also surfaces the mode in the startup logs.
+    if settings::dry_run() {
+        tracing::warn!("HONEYPOT_DRY_RUN enabled: bans and unbans are simulated, not executed");
+    }
+
     let token = std::env::var(BOT_TOKEN_ENV)
         .map_err(|_| HoneyPotError::MissingEnv(BOT_TOKEN_ENV.to_string()))?;
 

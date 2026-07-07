@@ -139,7 +139,13 @@ async fn perform_unban(
         return;
     }
 
-    if let Err(error) = guild_id.unban(&ctx.http, target_id).await {
+    if crate::settings::dry_run() {
+        tracing::warn!(
+            guild_id = %guild_id,
+            user_id = %target_id,
+            "dry-run: skipping unban"
+        );
+    } else if let Err(error) = guild_id.unban(&ctx.http, target_id).await {
         tracing::error!(
             %error,
             user_id = %target_id,
@@ -332,9 +338,11 @@ fn resolved_embed(base: Option<CreateEmbed>, target_id: UserId, moderator: &User
         CreateEmbed::new().field("User", target_id.mention().to_string(), false)
     });
 
-    base.title("🍯 Honeypot ban lifted")
+    let embed = base
+        .title("🍯 Honeypot ban lifted")
         .color(Colour::DARK_GREEN)
-        .field("Unbanned by", moderator.mention().to_string(), false)
+        .field("Unbanned by", moderator.mention().to_string(), false);
+    ban::apply_dry_run_marker(embed)
 }
 
 /// Builds the "bot banned" embed shown after a manual ban confirmation.
@@ -351,10 +359,12 @@ fn manually_banned_embed(
         CreateEmbed::new().field("User", target_id.mention().to_string(), false)
     });
 
-    base.title("🍯 Honeypot triggered — bot banned")
+    let embed = base
+        .title("🍯 Honeypot triggered — bot banned")
         .description("Banned after manual review.")
         .color(Colour::RED)
-        .field("Banned by", moderator.mention().to_string(), false)
+        .field("Banned by", moderator.mention().to_string(), false);
+    ban::apply_dry_run_marker(embed)
 }
 
 /// Sends an ephemeral text response, logging any failure.

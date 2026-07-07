@@ -15,7 +15,8 @@
 use crate::error::HoneyPotError;
 use serenity::all::{
     ButtonStyle, ChannelId, Colour, Context, CreateActionRow, CreateButton, CreateEmbed,
-    CreateMessage, GuildId, Mentionable, MessageId, RoleId, Timestamp, User, UserId,
+    CreateEmbedFooter, CreateMessage, GuildId, Mentionable, MessageId, RoleId, Timestamp, User,
+    UserId,
 };
 use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};
@@ -308,6 +309,19 @@ fn with_message_field(embed: CreateEmbed, trigger: &BanTrigger) -> CreateEmbed {
     }
 }
 
+/// Appends a footer marking the embed as a dry-run when [`crate::settings::dry_run`]
+/// is enabled, so simulated bans/unbans can't be mistaken for real ones in the
+/// log channel. A no-op in normal operation.
+pub(crate) fn apply_dry_run_marker(embed: CreateEmbed) -> CreateEmbed {
+    if crate::settings::dry_run() {
+        embed.footer(CreateEmbedFooter::new(
+            "⚠ DRY-RUN — no ban/unban was executed",
+        ))
+    } else {
+        embed
+    }
+}
+
 /// Builds the ban notification embed.
 fn build_ban_embed(target: &User, trigger: &BanTrigger) -> CreateEmbed {
     let embed = CreateEmbed::new()
@@ -321,7 +335,7 @@ fn build_ban_embed(target: &User, trigger: &BanTrigger) -> CreateEmbed {
         )
         .field("Bot", if target.bot { "Yes" } else { "No" }, true)
         .timestamp(Timestamp::now());
-    with_message_field(embed, trigger)
+    apply_dry_run_marker(with_message_field(embed, trigger))
 }
 
 /// Builds the ban notification message: the embed plus an `Unban` button.
@@ -348,7 +362,7 @@ fn build_pending_embed(target: &User, trigger: &BanTrigger) -> CreateEmbed {
         )
         .field("Bot", "Yes", true)
         .timestamp(Timestamp::now());
-    with_message_field(embed, trigger)
+    apply_dry_run_marker(with_message_field(embed, trigger))
 }
 
 /// Builds the untrusted-bot notice message: the pending embed plus a `Ban` button.
@@ -385,7 +399,13 @@ pub async fn execute_ban(
     }
 
     let reason = format!("Honeypot triggered ({})", trigger.kind());
-    if let Err(error) = guild_id
+    if crate::settings::dry_run() {
+        tracing::warn!(
+            guild_id = %guild_id,
+            user_id = %target.id,
+            "dry-run: skipping ban_with_reason"
+        );
+    } else if let Err(error) = guild_id
         .ban_with_reason(&ctx.http, target.id, DELETE_MESSAGE_DAYS, &reason)
         .await
     {
@@ -470,9 +490,17 @@ pub async fn confirm_bot_ban(
     user_id: UserId,
 ) -> Result<(), HoneyPotError> {
     let reason = "Honeypot triggered (bot, manually confirmed)";
-    guild_id
-        .ban_with_reason(&ctx.http, user_id, DELETE_MESSAGE_DAYS, reason)
-        .await?;
+    if crate::settings::dry_run() {
+        tracing::warn!(
+            guild_id = %guild_id,
+            user_id = %user_id,
+            "dry-run: skipping ban_with_reason"
+        );
+    } else {
+        guild_id
+            .ban_with_reason(&ctx.http, user_id, DELETE_MESSAGE_DAYS, reason)
+            .await?;
+    }
 
     tracing::info!(
         guild_id = %guild_id,
