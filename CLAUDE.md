@@ -15,6 +15,7 @@ It is distributed as a Docker image; there is no CLI beyond the running daemon.
 cargo build                                   # debug build
 cargo build --release --bin honeypot          # release binary (as Docker builds it)
 cargo run                                      # run locally (loads .env, reads config/config.toml)
+cargo run --features preview                   # post sample log embeds and exit (see Preview mode)
 cargo test                                     # all tests
 cargo test --verbose deserialize_single_guild # a single test by name
 cargo fmt --all -- --check                     # rustfmt check (CI gate)
@@ -52,6 +53,19 @@ embed edits, and `HANDLED_BANS` claim/release all run for real. So you can trip 
 honeypot on your own account and watch the whole flow — the log embed carries a
 `⚠ DRY-RUN` footer — without actually being banned. The flag is read once at
 startup via `settings::dry_run()`; a startup `warn!` line confirms it is active.
+
+### Preview mode
+
+The **`preview`** Cargo feature (off by default) swaps the daemon for a one-shot
+embed previewer. With it, `main`'s `run()` reads `HONEYPOT_PREVIEW_CHANNEL`, posts
+one message per log-embed variant (built with the *real* builders, so previews
+can't drift) to that channel via REST, and exits — no config load, no gateway.
+Run it with `cargo run --features preview`. Lives in `src/discord/preview.rs`;
+`main.rs` selects the preview vs. normal `run()` with `#[cfg(feature = "preview")]`
+(and allows dead code crate-wide under the feature, since the normal path is then
+uncompiled). To reach the previewer, `build_ban_embed`/`build_pending_embed`
+(ban.rs) and `resolved_embed`/`manually_banned_embed` (interaction.rs) are
+`pub(crate)`. None of this is compiled into the production image.
 
 ## Architecture
 

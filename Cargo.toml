@@ -7,6 +7,14 @@ repository = "https://github.com/m1sk9/HoneyPot"
 readme = "README.md"
 description = "A Discord bot that automatically bans spam bots via honeypot roles and channels."
 
+[features]
+# Compiles in the embed preview mode (`src/discord/preview.rs`). When enabled,
+# running the binary posts one of every honeypot log embed to the channel named
+# by HONEYPOT_PREVIEW_CHANNEL and exits, instead of connecting to the gateway.
+# Off by default, so the preview code and its fabricated sample data are absent
+# from the production build. Enable with `cargo run --features preview`.
+preview = []
+
 [dependencies]
 # `unstable_discord_api` is enabled only to expose `UserPublicFlags::SPAMMER`
 # (Discord's "likely spammer" mark, bit 20). serenity's bitflags deserializer

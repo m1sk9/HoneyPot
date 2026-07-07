@@ -129,11 +129,28 @@ environment variable.
 | `HONEYPOT_CONFIG_PATH` | Path to the guild configuration file.                                           | `config/config.toml` |
 | `RUST_LOG`             | Log level filter (same syntax as `tracing`). Overrides the built-in default.    | `honeypot=info`      |
 | `HONEYPOT_DRY_RUN`     | Simulate bans/unbans (`1`/`true`): run the full flow but skip the actual ban.   | off                  |
+| `HONEYPOT_PREVIEW_CHANNEL` | Channel to post embed previews to. Only read in `--features preview` builds. | —                 |
 
 When `HONEYPOT_DRY_RUN` is enabled, detection, log embeds, and buttons all run
 normally, but no member is banned or unbanned — the log embed shows a `⚠ DRY-RUN`
 footer. This lets you debug the whole flow on your own account without needing a
 throwaway account.
+
+### Preview mode
+
+Building with the `preview` feature turns the binary into a one-shot embed
+previewer instead of the normal daemon: set `HONEYPOT_PREVIEW_CHANNEL` and run
+
+```shell
+cargo run --features preview
+```
+
+It posts one of every log embed (ban, untrusted-bot notice, unban, manual ban)
+to that channel with sample data via REST — no gateway connection and no guild
+config — then exits. Use it to check how the embeds render on a given client
+(for instance the mobile app, which has no moderator view). The feature is off by
+default, so none of the preview code or its sample data ships in the production
+image.
 
 For local development, copy [`.env.example`](./.env.example) to `.env`; it is
 loaded automatically at startup. In production, supply these as real environment

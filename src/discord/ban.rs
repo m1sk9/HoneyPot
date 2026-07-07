@@ -461,7 +461,11 @@ pub(crate) fn apply_dry_run_marker(embed: CreateEmbed) -> CreateEmbed {
 }
 
 /// Builds the ban notification embed.
-fn build_ban_embed(target: &User, trigger: &BanTrigger, offender: &OffenderContext) -> CreateEmbed {
+pub(crate) fn build_ban_embed(
+    target: &User,
+    trigger: &BanTrigger,
+    offender: &OffenderContext,
+) -> CreateEmbed {
     let embed = CreateEmbed::new()
         .title("🍯 Honeypot triggered — user banned")
         .color(Colour::RED)
@@ -492,7 +496,7 @@ fn build_ban_message(
 ///
 /// Unlike [`build_ban_embed`], no ban has happened yet: the bot tripped a
 /// honeypot but is not in the guild's trusted list, so a moderator must decide.
-fn build_pending_embed(
+pub(crate) fn build_pending_embed(
     target: &User,
     trigger: &BanTrigger,
     offender: &OffenderContext,
