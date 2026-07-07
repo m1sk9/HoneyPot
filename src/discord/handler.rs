@@ -10,7 +10,9 @@
 //! rather than auto-banned, so well-behaved bots that legitimately post into a
 //! honeypot channel are not caught.
 
-use crate::discord::ban::{self, BanTrigger, is_honeypot_channel, newly_acquired_honeypot_role};
+use crate::discord::ban::{
+    self, BanTrigger, OffenderContext, is_honeypot_channel, newly_acquired_honeypot_role,
+};
 use crate::discord::interaction;
 use crate::settings::{GuildConfig, HoneyPotConfig};
 use serenity::all::{
@@ -41,6 +43,7 @@ async fn act_on_trigger(
     guild: &GuildConfig,
     user: &User,
     trigger: BanTrigger,
+    offender: &OffenderContext,
 ) {
     let result = if user.bot {
         if guild.trusted_bot_ids.contains(&user.id) {
@@ -50,9 +53,17 @@ async fn act_on_trigger(
             );
             return;
         }
-        ban::execute_suspicious_bot_notice(ctx, guild_id, guild.log_channel_id, user, trigger).await
+        ban::execute_suspicious_bot_notice(
+            ctx,
+            guild_id,
+            guild.log_channel_id,
+            user,
+            trigger,
+            offender,
+        )
+        .await
     } else {
-        ban::execute_ban(ctx, guild_id, guild.log_channel_id, user, trigger).await
+        ban::execute_ban(ctx, guild_id, guild.log_channel_id, user, trigger, offender).await
     };
 
     if let Err(error) = result {
@@ -98,7 +109,19 @@ impl EventHandler for HoneyPotEventHandler {
             return;
         };
 
-        act_on_trigger(&ctx, event.guild_id, guild, &user, BanTrigger::Role(role)).await;
+        let offender = OffenderContext {
+            joined_at: Some(event.joined_at),
+            unusual_dm_activity_until: event.unusual_dm_activity_until,
+        };
+        act_on_trigger(
+            &ctx,
+            event.guild_id,
+            guild,
+            &user,
+            BanTrigger::Role(role),
+            &offender,
+        )
+        .await;
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
@@ -123,6 +146,18 @@ impl EventHandler for HoneyPotEventHandler {
             return;
         }
 
+        // The partial member Discord attaches to a guild message carries the
+        // join date and DM-activity flag; a channel trigger has no other source.
+        let offender = OffenderContext {
+            joined_at: new_message
+                .member
+                .as_ref()
+                .and_then(|member| member.joined_at),
+            unusual_dm_activity_until: new_message
+                .member
+                .as_ref()
+                .and_then(|member| member.unusual_dm_activity_until),
+        };
         act_on_trigger(
             &ctx,
             guild_id,
@@ -132,6 +167,7 @@ impl EventHandler for HoneyPotEventHandler {
                 channel_id: new_message.channel_id,
                 content: Some(new_message.content),
             },
+            &offender,
         )
         .await;
     }

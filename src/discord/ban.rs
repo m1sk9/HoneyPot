@@ -16,7 +16,7 @@ use crate::error::HoneyPotError;
 use serenity::all::{
     ButtonStyle, ChannelId, Colour, Context, CreateActionRow, CreateButton, CreateEmbed,
     CreateEmbedFooter, CreateMessage, GuildId, Mentionable, MessageId, RoleId, Timestamp, User,
-    UserId,
+    UserId, UserPublicFlags,
 };
 use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};
@@ -252,14 +252,195 @@ pub fn is_honeypot_channel(honeypot_channel_ids: &[ChannelId], channel_id: Chann
     honeypot_channel_ids.contains(&channel_id)
 }
 
-/// Formats the target user field: mention, tag, and raw ID.
+/// Guild-membership details about an offender, captured at trigger time and
+/// shown in the log embed as moderator decision aids.
 ///
-/// The tag embeds a user-controlled username inside an inline code span, so
-/// backticks are neutralized to keep the span from being broken (spoofing the
-/// log embed's layout).
+/// Sourced from the triggering event — the member on a `guild_member_update`, or
+/// the message's partial member on a channel post — so no extra HTTP fetch is
+/// needed. Both fields are optional: a channel trigger's partial member may omit
+/// `joined_at`, and `unusual_dm_activity_until` is only set while Discord is
+/// actively flagging the account.
+pub struct OffenderContext {
+    /// When the offender joined the guild, if known.
+    pub joined_at: Option<Timestamp>,
+    /// When set to a future time, Discord has flagged the account for unusual
+    /// DM activity (excessive DMs to non-friends). `None` or a past time means
+    /// the account is not currently flagged.
+    pub unusual_dm_activity_until: Option<Timestamp>,
+}
+
+/// Accounts younger than this many days at trigger time are flagged as new in
+/// the log embed — a throwaway account created just to spam is the common case.
+const NEW_ACCOUNT_WARN_DAYS: i64 = 7;
+
+/// Seconds in a day, for the [`NEW_ACCOUNT_WARN_DAYS`] age comparison.
+const SECONDS_PER_DAY: i64 = 86_400;
+
+/// Public flags surfaced in the log embed's "Badges" field, most trust-relevant
+/// first. These argue *for* an account's legitimacy, so a moderator seeing none
+/// on an offender has one more reason to ban.
+///
+/// Discord's `SPAMMER` flag (bit 20) is intentionally *not* listed here — it
+/// argues the opposite way, so [`flags_field`] surfaces it separately with a
+/// warning. Note that `UserPublicFlags::SPAMMER` only exists (and only survives
+/// serenity's `from_bits_truncate` deserialization) when the `unstable_discord_api`
+/// feature is enabled; see the serenity dependency comment in `Cargo.toml`.
+const NOTABLE_FLAGS: [(UserPublicFlags, &str); 13] = [
+    (UserPublicFlags::VERIFIED_BOT, "Verified Bot"),
+    (
+        UserPublicFlags::EARLY_VERIFIED_BOT_DEVELOPER,
+        "Early Verified Bot Developer",
+    ),
+    (UserPublicFlags::EARLY_SUPPORTER, "Early Supporter"),
+    (UserPublicFlags::ACTIVE_DEVELOPER, "Active Developer"),
+    (
+        UserPublicFlags::PARTNERED_SERVER_OWNER,
+        "Partnered Server Owner",
+    ),
+    (UserPublicFlags::DISCORD_EMPLOYEE, "Discord Staff"),
+    (
+        UserPublicFlags::DISCORD_CERTIFIED_MODERATOR,
+        "Certified Moderator",
+    ),
+    (UserPublicFlags::HYPESQUAD_EVENTS, "HypeSquad Events"),
+    (UserPublicFlags::HOUSE_BRAVERY, "HypeSquad Bravery"),
+    (UserPublicFlags::HOUSE_BRILLIANCE, "HypeSquad Brilliance"),
+    (UserPublicFlags::HOUSE_BALANCE, "HypeSquad Balance"),
+    (UserPublicFlags::BUG_HUNTER_LEVEL_1, "Bug Hunter"),
+    (UserPublicFlags::BUG_HUNTER_LEVEL_2, "Bug Hunter Gold"),
+];
+
+/// Formats the target user field: mention, display name, tag, and raw ID.
+///
+/// The tag and display name embed user-controlled text inside inline code spans,
+/// so backticks are neutralized to keep the spans from being broken (spoofing
+/// the log embed's layout).
 fn target_field(target: &User) -> String {
     let tag = target.tag().replace('`', "'");
-    format!("{} (`{}`)\nID: {}", target.mention(), tag, target.id)
+    let mut field = format!("{} (`{}`)", target.mention(), tag);
+    if let Some(global) = &target.global_name {
+        let display = global.replace('`', "'");
+        field.push_str(&format!("\nDisplay: `{display}`"));
+    }
+    field.push_str(&format!("\nID: {}", target.id));
+    field
+}
+
+/// Renders a timestamp as Discord's absolute + relative markdown, e.g.
+/// `<t:1700000000:F> (<t:1700000000:R>)`.
+///
+/// The client localizes both forms — including the mobile app, where the
+/// moderator view that would otherwise surface this detail is unavailable.
+fn timestamp_field(ts: Timestamp) -> String {
+    let secs = ts.unix_timestamp();
+    format!("<t:{secs}:F> (<t:{secs}:R>)")
+}
+
+/// Whether `created` is within [`NEW_ACCOUNT_WARN_DAYS`] of `now`.
+///
+/// Takes `now` explicitly so the age check stays pure and unit-testable.
+fn is_new_account(created: Timestamp, now: Timestamp) -> bool {
+    now.unix_timestamp() - created.unix_timestamp() < NEW_ACCOUNT_WARN_DAYS * SECONDS_PER_DAY
+}
+
+/// The "Account created" field value: the account's creation date, prefixed with
+/// a warning when the account is newer than [`NEW_ACCOUNT_WARN_DAYS`].
+fn created_field(target: &User, now: Timestamp) -> String {
+    let created = target.created_at();
+    let stamp = timestamp_field(created);
+    if is_new_account(created, now) {
+        format!("⚠ {stamp}\n**New account** (under {NEW_ACCOUNT_WARN_DAYS} days old)")
+    } else {
+        stamp
+    }
+}
+
+/// The "Avatar" field value. A default avatar (no custom one set) is a common
+/// trait of throwaway spam accounts, so it is flagged.
+fn avatar_field(target: &User) -> &'static str {
+    if target.avatar.is_none() {
+        "⚠ Default (no custom avatar)"
+    } else {
+        "Custom"
+    }
+}
+
+/// The "Account" field value: whether the offender is a bot and/or a Discord
+/// system account.
+fn account_type_field(target: &User) -> String {
+    let yes_no = |flag: bool| if flag { "Yes" } else { "No" };
+    format!(
+        "Bot: {}\nSystem: {}",
+        yes_no(target.bot),
+        yes_no(target.system)
+    )
+}
+
+/// The "Badges" field value: Discord's spammer warning (if flagged) followed by
+/// the account's [`NOTABLE_FLAGS`], or `None` when it carries neither.
+fn flags_field(target: &User) -> String {
+    let Some(flags) = target.public_flags else {
+        return "None".to_string();
+    };
+    let mut lines: Vec<String> = Vec::new();
+    // The SPAMMER flag is the one badge that argues *for* a ban, so it leads the
+    // field with a warning. `UserPublicFlags::SPAMMER` only exists because serenity
+    // is built with `unstable_discord_api` (enabled in `Cargo.toml`); no cfg gate
+    // is needed here since that feature is always on for this crate's build.
+    if flags.contains(UserPublicFlags::SPAMMER) {
+        lines.push("⚠ Marked by Discord as a likely spammer".to_string());
+    }
+    lines.extend(
+        NOTABLE_FLAGS
+            .iter()
+            .filter(|(flag, _)| flags.contains(*flag))
+            .map(|(_, label)| (*label).to_string()),
+    );
+    if lines.is_empty() {
+        "None".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+/// The "Joined server" field value, or `Unknown` when the trigger did not carry
+/// a join date (a channel trigger's partial member may omit it).
+fn joined_field(offender: &OffenderContext) -> String {
+    match offender.joined_at {
+        Some(ts) => timestamp_field(ts),
+        None => "Unknown".to_string(),
+    }
+}
+
+/// The "Unusual DM activity" field value, shown only while the account is
+/// actively flagged (the timestamp is in the future). Returns `None` otherwise,
+/// so the field is omitted for the common, unflagged case.
+fn unusual_dm_field(offender: &OffenderContext, now: Timestamp) -> Option<String> {
+    let until = offender.unusual_dm_activity_until?;
+    (until.unix_timestamp() > now.unix_timestamp())
+        .then(|| format!("⚠ Flagged until {}", timestamp_field(until)))
+}
+
+/// Appends the shared offender-detail fields (creation date, join date, avatar,
+/// badges, and — when flagged — unusual DM activity) to a log embed.
+///
+/// Common to the ban embed and the untrusted-bot notice so both carry the same
+/// decision aids. `now` is sampled once so the age warnings agree.
+fn with_offender_fields(
+    embed: CreateEmbed,
+    target: &User,
+    offender: &OffenderContext,
+) -> CreateEmbed {
+    let now = Timestamp::now();
+    let embed = embed
+        .field("Account created", created_field(target, now), false)
+        .field("Joined server", joined_field(offender), true)
+        .field("Avatar", avatar_field(target), true)
+        .field("Badges", flags_field(target), false);
+    match unusual_dm_field(offender, now) {
+        Some(value) => embed.field("Unusual DM activity", value, false),
+        None => embed,
+    }
 }
 
 /// Maximum characters of message content shown in the log embed.
@@ -323,7 +504,7 @@ pub(crate) fn apply_dry_run_marker(embed: CreateEmbed) -> CreateEmbed {
 }
 
 /// Builds the ban notification embed.
-fn build_ban_embed(target: &User, trigger: &BanTrigger) -> CreateEmbed {
+fn build_ban_embed(target: &User, trigger: &BanTrigger, offender: &OffenderContext) -> CreateEmbed {
     let embed = CreateEmbed::new()
         .title("🍯 Honeypot triggered — user banned")
         .color(Colour::RED)
@@ -333,15 +514,20 @@ fn build_ban_embed(target: &User, trigger: &BanTrigger) -> CreateEmbed {
             format!("{} {}", trigger.kind(), trigger.detail()),
             true,
         )
-        .field("Bot", if target.bot { "Yes" } else { "No" }, true)
+        .field("Account", account_type_field(target), true)
         .timestamp(Timestamp::now());
+    let embed = with_offender_fields(embed, target, offender);
     apply_dry_run_marker(with_message_field(embed, trigger))
 }
 
 /// Builds the ban notification message: the embed plus an `Unban` button.
-fn build_ban_message(target: &User, trigger: &BanTrigger) -> CreateMessage {
+fn build_ban_message(
+    target: &User,
+    trigger: &BanTrigger,
+    offender: &OffenderContext,
+) -> CreateMessage {
     CreateMessage::new()
-        .embed(build_ban_embed(target, trigger))
+        .embed(build_ban_embed(target, trigger, offender))
         .components(vec![unban_action_row(target.id)])
 }
 
@@ -349,7 +535,11 @@ fn build_ban_message(target: &User, trigger: &BanTrigger) -> CreateMessage {
 ///
 /// Unlike [`build_ban_embed`], no ban has happened yet: the bot tripped a
 /// honeypot but is not in the guild's trusted list, so a moderator must decide.
-fn build_pending_embed(target: &User, trigger: &BanTrigger) -> CreateEmbed {
+fn build_pending_embed(
+    target: &User,
+    trigger: &BanTrigger,
+    offender: &OffenderContext,
+) -> CreateEmbed {
     let embed = CreateEmbed::new()
         .title("🍯 Honeypot triggered — untrusted bot")
         .description("This bot is not in the trusted list. Press **Ban** to remove it.")
@@ -360,19 +550,24 @@ fn build_pending_embed(target: &User, trigger: &BanTrigger) -> CreateEmbed {
             format!("{} {}", trigger.kind(), trigger.detail()),
             true,
         )
-        .field("Bot", "Yes", true)
+        .field("Account", account_type_field(target), true)
         .timestamp(Timestamp::now());
+    let embed = with_offender_fields(embed, target, offender);
     apply_dry_run_marker(with_message_field(embed, trigger))
 }
 
 /// Builds the untrusted-bot notice message: the pending embed plus a `Ban` button.
-fn build_pending_message(target: &User, trigger: &BanTrigger) -> CreateMessage {
+fn build_pending_message(
+    target: &User,
+    trigger: &BanTrigger,
+    offender: &OffenderContext,
+) -> CreateMessage {
     let button = CreateButton::new(ban_custom_id(target.id))
         .style(ButtonStyle::Danger)
         .label("Ban");
     let row = CreateActionRow::Buttons(vec![button]);
     CreateMessage::new()
-        .embed(build_pending_embed(target, trigger))
+        .embed(build_pending_embed(target, trigger, offender))
         .components(vec![row])
 }
 
@@ -389,6 +584,7 @@ pub async fn execute_ban(
     log_channel_id: ChannelId,
     target: &User,
     trigger: BanTrigger,
+    offender: &OffenderContext,
 ) -> Result<(), HoneyPotError> {
     if !claim_ban(guild_id, target.id) {
         tracing::debug!(
@@ -421,7 +617,7 @@ pub async fn execute_ban(
     );
 
     if let Err(error) = log_channel_id
-        .send_message(&ctx.http, build_ban_message(target, &trigger))
+        .send_message(&ctx.http, build_ban_message(target, &trigger, offender))
         .await
     {
         tracing::error!(
@@ -450,6 +646,7 @@ pub async fn execute_suspicious_bot_notice(
     log_channel_id: ChannelId,
     target: &User,
     trigger: BanTrigger,
+    offender: &OffenderContext,
 ) -> Result<(), HoneyPotError> {
     if !claim_ban(guild_id, target.id) {
         tracing::debug!(
@@ -467,7 +664,7 @@ pub async fn execute_suspicious_bot_notice(
     );
 
     if let Err(error) = log_channel_id
-        .send_message(&ctx.http, build_pending_message(target, &trigger))
+        .send_message(&ctx.http, build_pending_message(target, &trigger, offender))
         .await
     {
         forget_ban(guild_id, target.id);
@@ -797,5 +994,175 @@ mod tests {
         user.name = "ev`il".to_string();
         user.discriminator = None;
         assert!(!target_field(&user).contains("ev`il"));
+    }
+
+    /// A UTC timestamp from a UNIX seconds value.
+    fn ts(secs: i64) -> Timestamp {
+        Timestamp::from_unix_timestamp(secs).expect("valid timestamp")
+    }
+
+    /// A default user whose account creation date is `secs` (derived from the
+    /// snowflake id, as [`User::created_at`] reads it).
+    fn user_created_at(secs: i64) -> User {
+        const DISCORD_EPOCH_MS: u64 = 1_420_070_400_000;
+        let millis = (secs as u64) * 1000;
+        let mut user = User::default();
+        user.id = UserId::new((millis - DISCORD_EPOCH_MS) << 22);
+        user
+    }
+
+    #[test]
+    fn target_field_includes_sanitized_display_name() {
+        let mut user = User::default();
+        user.name = "spammer".to_string();
+        user.discriminator = None;
+        user.global_name = Some("dis`play".to_string());
+        let field = target_field(&user);
+        assert!(field.contains("Display: `dis'play`"));
+        assert!(!field.contains("dis`play"));
+    }
+
+    #[test]
+    fn target_field_omits_display_when_absent() {
+        let mut user = User::default();
+        user.name = "spammer".to_string();
+        user.discriminator = None;
+        user.global_name = None;
+        assert!(!target_field(&user).contains("Display:"));
+    }
+
+    #[test]
+    fn timestamp_field_renders_absolute_and_relative() {
+        assert_eq!(
+            timestamp_field(ts(1_700_000_000)),
+            "<t:1700000000:F> (<t:1700000000:R>)"
+        );
+    }
+
+    #[test]
+    fn is_new_account_flags_only_recent_creation() {
+        let now = ts(1_700_000_000);
+        // Created an hour ago: within the warning window.
+        assert!(is_new_account(ts(1_700_000_000 - 3600), now));
+        // Created 30 days ago: outside it.
+        assert!(!is_new_account(
+            ts(1_700_000_000 - 30 * SECONDS_PER_DAY),
+            now
+        ));
+    }
+
+    #[test]
+    fn created_field_warns_for_new_account_only() {
+        let now = ts(1_700_000_000);
+        let recent = user_created_at(1_700_000_000 - 3600);
+        assert!(created_field(&recent, now).contains("New account"));
+
+        let old = user_created_at(1_700_000_000 - 60 * SECONDS_PER_DAY);
+        assert!(!created_field(&old, now).contains("New account"));
+    }
+
+    #[test]
+    fn avatar_field_flags_default_avatar() {
+        let default_avatar = User::default();
+        assert!(avatar_field(&default_avatar).contains("Default"));
+
+        let mut custom = User::default();
+        custom.avatar = Some(
+            "0123456789abcdef0123456789abcdef"
+                .parse::<serenity::all::ImageHash>()
+                .expect("valid image hash"),
+        );
+        assert_eq!(avatar_field(&custom), "Custom");
+    }
+
+    #[test]
+    fn account_type_field_reports_bot_and_system() {
+        let mut user = User::default();
+        user.bot = true;
+        user.system = false;
+        assert_eq!(account_type_field(&user), "Bot: Yes\nSystem: No");
+    }
+
+    #[test]
+    fn flags_field_none_when_absent_or_empty() {
+        let mut user = User::default();
+        user.public_flags = None;
+        assert_eq!(flags_field(&user), "None");
+        user.public_flags = Some(UserPublicFlags::empty());
+        assert_eq!(flags_field(&user), "None");
+    }
+
+    #[test]
+    fn flags_field_lists_notable_flags() {
+        let mut user = User::default();
+        user.public_flags = Some(UserPublicFlags::VERIFIED_BOT | UserPublicFlags::ACTIVE_DEVELOPER);
+        let field = flags_field(&user);
+        assert!(field.contains("Verified Bot"));
+        assert!(field.contains("Active Developer"));
+    }
+
+    #[test]
+    fn flags_field_surfaces_spammer_warning_first() {
+        let mut user = User::default();
+        user.public_flags = Some(UserPublicFlags::SPAMMER | UserPublicFlags::VERIFIED_BOT);
+        let field = flags_field(&user);
+        assert!(field.starts_with("⚠ Marked by Discord as a likely spammer"));
+        assert!(field.contains("Verified Bot"));
+    }
+
+    #[test]
+    fn joined_field_handles_known_and_unknown() {
+        let known = OffenderContext {
+            joined_at: Some(ts(1_700_000_000)),
+            unusual_dm_activity_until: None,
+        };
+        assert_eq!(joined_field(&known), timestamp_field(ts(1_700_000_000)));
+
+        let unknown = OffenderContext {
+            joined_at: None,
+            unusual_dm_activity_until: None,
+        };
+        assert_eq!(joined_field(&unknown), "Unknown");
+    }
+
+    #[test]
+    fn unusual_dm_field_shown_only_while_flagged() {
+        let now = ts(1_700_000_000);
+
+        // Not flagged.
+        assert_eq!(
+            unusual_dm_field(
+                &OffenderContext {
+                    joined_at: None,
+                    unusual_dm_activity_until: None,
+                },
+                now
+            ),
+            None
+        );
+
+        // Flag expired in the past.
+        assert_eq!(
+            unusual_dm_field(
+                &OffenderContext {
+                    joined_at: None,
+                    unusual_dm_activity_until: Some(ts(1_700_000_000 - 3600)),
+                },
+                now
+            ),
+            None
+        );
+
+        // Currently flagged (future).
+        assert!(
+            unusual_dm_field(
+                &OffenderContext {
+                    joined_at: None,
+                    unusual_dm_activity_until: Some(ts(1_700_000_000 + 3600)),
+                },
+                now
+            )
+            .is_some()
+        );
     }
 }
