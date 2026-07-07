@@ -189,7 +189,14 @@ pub enum BanTrigger {
     /// The offender acquired this honeypot role.
     Role(RoleId),
     /// The offender posted in this honeypot channel.
-    Channel(ChannelId),
+    Channel {
+        /// The honeypot channel posted in.
+        channel_id: ChannelId,
+        /// The offending message's content, shown in the log embed so a
+        /// moderator can confirm it was spam. `None` when it wasn't captured
+        /// (e.g. an empty message); role triggers never carry content.
+        content: Option<String>,
+    },
 }
 
 impl BanTrigger {
@@ -197,7 +204,7 @@ impl BanTrigger {
     fn kind(&self) -> &'static str {
         match self {
             BanTrigger::Role(_) => "role",
-            BanTrigger::Channel(_) => "channel",
+            BanTrigger::Channel { .. } => "channel",
         }
     }
 
@@ -205,7 +212,16 @@ impl BanTrigger {
     fn detail(&self) -> String {
         match self {
             BanTrigger::Role(id) => id.mention().to_string(),
-            BanTrigger::Channel(id) => id.mention().to_string(),
+            BanTrigger::Channel { channel_id, .. } => channel_id.mention().to_string(),
+        }
+    }
+
+    /// The offending message's content, if captured. Only channel triggers
+    /// carry one; a role trigger always returns `None`.
+    fn message_content(&self) -> Option<&str> {
+        match self {
+            BanTrigger::Role(_) => None,
+            BanTrigger::Channel { content, .. } => content.as_deref(),
         }
     }
 }
@@ -245,9 +261,56 @@ fn target_field(target: &User) -> String {
     format!("{} (`{}`)\nID: {}", target.mention(), tag, target.id)
 }
 
+/// Maximum characters of message content shown in the log embed.
+///
+/// Discord caps an embed field value at 1024 characters; this leaves headroom
+/// for the surrounding code fence and the truncation marker.
+const MAX_MESSAGE_LEN: usize = 1000;
+
+/// Formats the offending message's content for the log embed.
+///
+/// The content is user-controlled, so backticks are neutralized (they would
+/// otherwise break out of the surrounding code fence and let the spammer spoof
+/// the embed) and the text is truncated to [`MAX_MESSAGE_LEN`] characters to
+/// stay within Discord's field limit. Wrapping it in a code fence also renders
+/// any links and mentions inert.
+fn message_field(content: &str) -> String {
+    let sanitized = content.replace('`', "'");
+    let mut chars = sanitized.chars();
+    let truncated: String = chars.by_ref().take(MAX_MESSAGE_LEN).collect();
+    let body = if chars.next().is_some() {
+        format!("{truncated}…")
+    } else {
+        truncated
+    };
+    format!("```\n{body}\n```")
+}
+
+/// The formatted "Message" field value for `trigger`, or `None` when there is
+/// nothing to show (a role trigger, or a channel trigger whose content wasn't
+/// captured or was empty).
+///
+/// Kept pure and separate from [`with_message_field`] so the "show it or not"
+/// decision stays unit-testable without constructing an embed.
+fn message_field_value(trigger: &BanTrigger) -> Option<String> {
+    match trigger.message_content() {
+        Some(content) if !content.is_empty() => Some(message_field(content)),
+        _ => None,
+    }
+}
+
+/// Appends a "Message" field carrying the offending message's content when
+/// [`message_field_value`] has something to show. A no-op otherwise.
+fn with_message_field(embed: CreateEmbed, trigger: &BanTrigger) -> CreateEmbed {
+    match message_field_value(trigger) {
+        Some(value) => embed.field("Message", value, false),
+        None => embed,
+    }
+}
+
 /// Builds the ban notification embed.
 fn build_ban_embed(target: &User, trigger: &BanTrigger) -> CreateEmbed {
-    CreateEmbed::new()
+    let embed = CreateEmbed::new()
         .title("🍯 Honeypot triggered — user banned")
         .color(Colour::RED)
         .field("User", target_field(target), false)
@@ -257,7 +320,8 @@ fn build_ban_embed(target: &User, trigger: &BanTrigger) -> CreateEmbed {
             true,
         )
         .field("Bot", if target.bot { "Yes" } else { "No" }, true)
-        .timestamp(Timestamp::now())
+        .timestamp(Timestamp::now());
+    with_message_field(embed, trigger)
 }
 
 /// Builds the ban notification message: the embed plus an `Unban` button.
@@ -272,7 +336,7 @@ fn build_ban_message(target: &User, trigger: &BanTrigger) -> CreateMessage {
 /// Unlike [`build_ban_embed`], no ban has happened yet: the bot tripped a
 /// honeypot but is not in the guild's trusted list, so a moderator must decide.
 fn build_pending_embed(target: &User, trigger: &BanTrigger) -> CreateEmbed {
-    CreateEmbed::new()
+    let embed = CreateEmbed::new()
         .title("🍯 Honeypot triggered — untrusted bot")
         .description("This bot is not in the trusted list. Press **Ban** to remove it.")
         .color(Colour::GOLD)
@@ -283,7 +347,8 @@ fn build_pending_embed(target: &User, trigger: &BanTrigger) -> CreateEmbed {
             true,
         )
         .field("Bot", "Yes", true)
-        .timestamp(Timestamp::now())
+        .timestamp(Timestamp::now());
+    with_message_field(embed, trigger)
 }
 
 /// Builds the untrusted-bot notice message: the pending embed plus a `Ban` button.
@@ -588,9 +653,99 @@ mod tests {
         assert_eq!(role.kind(), "role");
         assert_eq!(role.detail(), "<@&42>");
 
-        let channel = BanTrigger::Channel(ChannelId::new(84));
+        let channel = BanTrigger::Channel {
+            channel_id: ChannelId::new(84),
+            content: None,
+        };
         assert_eq!(channel.kind(), "channel");
         assert_eq!(channel.detail(), "<#84>");
+    }
+
+    #[test]
+    fn message_content_only_for_channel_trigger() {
+        assert_eq!(BanTrigger::Role(RoleId::new(1)).message_content(), None);
+        assert_eq!(
+            BanTrigger::Channel {
+                channel_id: ChannelId::new(1),
+                content: None,
+            }
+            .message_content(),
+            None
+        );
+        assert_eq!(
+            BanTrigger::Channel {
+                channel_id: ChannelId::new(1),
+                content: Some("spam".to_string()),
+            }
+            .message_content(),
+            Some("spam")
+        );
+    }
+
+    #[test]
+    fn message_field_value_shown_only_for_non_empty_channel_content() {
+        // Role trigger: never a message.
+        assert_eq!(message_field_value(&BanTrigger::Role(RoleId::new(1))), None);
+        // Channel trigger without captured content.
+        assert_eq!(
+            message_field_value(&BanTrigger::Channel {
+                channel_id: ChannelId::new(1),
+                content: None,
+            }),
+            None
+        );
+        // Channel trigger with empty content is suppressed.
+        assert_eq!(
+            message_field_value(&BanTrigger::Channel {
+                channel_id: ChannelId::new(1),
+                content: Some(String::new()),
+            }),
+            None
+        );
+        // Channel trigger with real content is formatted.
+        assert_eq!(
+            message_field_value(&BanTrigger::Channel {
+                channel_id: ChannelId::new(1),
+                content: Some("spam".to_string()),
+            }),
+            Some("```\nspam\n```".to_string())
+        );
+    }
+
+    #[test]
+    fn message_field_wraps_in_code_fence() {
+        assert_eq!(message_field("hello"), "```\nhello\n```");
+    }
+
+    #[test]
+    fn message_field_neutralizes_backticks() {
+        // Only the fence's own backticks may remain, or a spammer could break
+        // out of it: the body must carry none of the input's backticks.
+        let rendered = message_field("evil ``` content");
+        let body = rendered
+            .trim_start_matches("```\n")
+            .trim_end_matches("\n```");
+        assert!(!body.contains('`'));
+        assert_eq!(body, "evil ''' content");
+    }
+
+    #[test]
+    fn message_field_truncates_overlong_content() {
+        let long = "a".repeat(MAX_MESSAGE_LEN + 50);
+        let rendered = message_field(&long);
+        assert!(rendered.ends_with("…\n```"));
+        let shown = rendered
+            .trim_start_matches("```\n")
+            .trim_end_matches("\n```")
+            .trim_end_matches('…');
+        assert_eq!(shown.chars().count(), MAX_MESSAGE_LEN);
+    }
+
+    #[test]
+    fn message_field_keeps_content_at_the_limit_untruncated() {
+        let exact = "a".repeat(MAX_MESSAGE_LEN);
+        let rendered = message_field(&exact);
+        assert!(!rendered.contains('…'));
     }
 
     #[test]

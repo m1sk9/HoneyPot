@@ -35,10 +35,12 @@ Requires a real Discord bot token and a live gateway connection.
 2. Copy `config/config.example.toml` to `config/config.toml` and fill in guild IDs.
 3. `cargo run`.
 
-The bot needs the **`GUILD_MEMBERS`** privileged intent (enabled in the Discord
-Developer Portal) and the **Ban Members** permission in every moderated guild.
-`MESSAGE_CONTENT` is intentionally *not* requested — only the fact that a message
-was posted matters, never its content. Do not add it.
+The bot needs the **`GUILD_MEMBERS`** and **`MESSAGE_CONTENT`** privileged
+intents (both enabled in the Discord Developer Portal) and the **Ban Members**
+permission in every moderated guild. If either intent is disabled the gateway
+refuses the connection. `MESSAGE_CONTENT` is requested so a channel-triggered
+ban can log the offending message for moderator review; the content is only ever
+read to populate that log embed.
 
 ## Architecture
 
@@ -110,7 +112,9 @@ When a honeypot fires, `act_on_trigger` branches on the offender:
   carry the log message id so it can be edited in place), and `uhp_cancel`. The
   prefixes deliberately do not collide; there are tests asserting this.
 - **User-controlled text** (e.g. usernames in embeds) is sanitized — see
-  `target_field`, which neutralizes backticks to prevent embed-layout spoofing.
+  `target_field`, which neutralizes backticks to prevent embed-layout spoofing,
+  and `message_field`, which neutralizes backticks and truncates the logged
+  message to stay within Discord's embed field limit.
 
 ## Releases
 

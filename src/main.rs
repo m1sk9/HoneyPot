@@ -47,13 +47,16 @@ async fn main() -> Result<(), HoneyPotError> {
     let token = std::env::var(BOT_TOKEN_ENV)
         .map_err(|_| HoneyPotError::MissingEnv(BOT_TOKEN_ENV.to_string()))?;
 
-    // `GUILD_MEMBERS` is a privileged intent and must be enabled in the
-    // Discord Developer Portal. `MESSAGE_CONTENT` is intentionally omitted:
-    // only the fact that a message was posted matters, not its content.
+    // `GUILD_MEMBERS` and `MESSAGE_CONTENT` are privileged intents and must be
+    // enabled in the Discord Developer Portal, or the gateway rejects the
+    // connection. `MESSAGE_CONTENT` is required so a message-triggered ban can
+    // record the offending message in its log embed, letting a moderator verify
+    // it really was spam (and catch a mistaken ban).
     let intents = GatewayIntents::GUILDS
         | GatewayIntents::GUILD_MEMBERS
         | GatewayIntents::GUILD_MESSAGES
-        | GatewayIntents::GUILD_MODERATION;
+        | GatewayIntents::GUILD_MODERATION
+        | GatewayIntents::MESSAGE_CONTENT;
 
     let mut client = Client::builder(&token, intents)
         .event_handler(HoneyPotEventHandler)

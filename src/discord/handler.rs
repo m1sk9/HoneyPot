@@ -128,7 +128,10 @@ impl EventHandler for HoneyPotEventHandler {
             guild_id,
             guild,
             &user,
-            BanTrigger::Channel(new_message.channel_id),
+            BanTrigger::Channel {
+                channel_id: new_message.channel_id,
+                content: Some(new_message.content),
+            },
         )
         .await;
     }
