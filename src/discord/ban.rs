@@ -15,7 +15,7 @@
 use crate::error::HoneyPotError;
 use serenity::all::{
     ButtonStyle, ChannelId, Colour, Context, CreateActionRow, CreateButton, CreateEmbed,
-    CreateMessage, GuildId, Mentionable, RoleId, Timestamp, User, UserId,
+    CreateMessage, GuildId, Mentionable, MessageId, RoleId, Timestamp, User, UserId,
 };
 use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};
@@ -51,13 +51,33 @@ pub fn forget_ban(guild_id: GuildId, user_id: UserId) {
 }
 
 /// Prefix for the unban button `custom_id`. The full id is `uhp_unban:{user_id}`;
-/// the button handler parses the suffix as a [`UserId`].
+/// the button handler parses the suffix as a [`UserId`]. Clicking it does not
+/// unban yet — it opens an ephemeral confirmation (see [`UNBAN_CONFIRM_CUSTOM_ID_PREFIX`]).
 pub const UNBAN_CUSTOM_ID_PREFIX: &str = "uhp_unban";
 
 /// Prefix for the manual-ban button `custom_id`. The full id is
 /// `uhp_ban:{user_id}`. This button appears on the "untrusted bot" notice so a
 /// moderator can confirm the ban that was deliberately not applied automatically.
+/// Clicking it does not ban yet — it opens an ephemeral confirmation (see
+/// [`BAN_CONFIRM_CUSTOM_ID_PREFIX`]).
 pub const BAN_CUSTOM_ID_PREFIX: &str = "uhp_ban";
+
+/// Prefix for the "confirm unban" button shown in the ephemeral confirmation.
+/// The full id is `uhp_unban_do:{user_id}:{message_id}`, where `message_id`
+/// identifies the original log message so the handler can edit it in place.
+/// The `_do` suffix keeps this from matching [`UNBAN_CUSTOM_ID_PREFIX`]'s
+/// `uhp_unban:` form (they diverge before the `:` separator).
+pub const UNBAN_CONFIRM_CUSTOM_ID_PREFIX: &str = "uhp_unban_do";
+
+/// Prefix for the "confirm ban" button shown in the ephemeral confirmation.
+/// The full id is `uhp_ban_do:{user_id}:{message_id}`, mirroring
+/// [`UNBAN_CONFIRM_CUSTOM_ID_PREFIX`].
+pub const BAN_CONFIRM_CUSTOM_ID_PREFIX: &str = "uhp_ban_do";
+
+/// `custom_id` of the "cancel" button in either ephemeral confirmation. Carries
+/// no payload: cancelling only dismisses the ephemeral prompt, touching neither
+/// the ban nor the original log message.
+pub const CANCEL_CUSTOM_ID: &str = "uhp_cancel";
 
 /// Number of days' worth of the offender's messages to delete on ban.
 const DELETE_MESSAGE_DAYS: u8 = 1;
@@ -96,12 +116,72 @@ pub fn parse_ban_custom_id(custom_id: &str) -> Option<UserId> {
     suffix.parse::<u64>().ok().map(UserId::new)
 }
 
+/// Builds the "confirm unban" button `custom_id` for `user_id`, embedding the
+/// `message_id` of the log message to edit once the unban is confirmed.
+fn unban_confirm_custom_id(user_id: UserId, message_id: MessageId) -> String {
+    format!("{UNBAN_CONFIRM_CUSTOM_ID_PREFIX}:{user_id}:{message_id}")
+}
+
+/// Parses a "confirm unban" `custom_id` (`uhp_unban_do:{user_id}:{message_id}`)
+/// into its target user and the log message to edit. Returns `None` for any
+/// other `custom_id`.
+pub fn parse_unban_confirm_custom_id(custom_id: &str) -> Option<(UserId, MessageId)> {
+    parse_confirm_custom_id(UNBAN_CONFIRM_CUSTOM_ID_PREFIX, custom_id)
+}
+
+/// Builds the "confirm ban" button `custom_id` for `user_id`, embedding the
+/// `message_id` of the notice to edit once the ban is confirmed.
+fn ban_confirm_custom_id(user_id: UserId, message_id: MessageId) -> String {
+    format!("{BAN_CONFIRM_CUSTOM_ID_PREFIX}:{user_id}:{message_id}")
+}
+
+/// Parses a "confirm ban" `custom_id` (`uhp_ban_do:{user_id}:{message_id}`) into
+/// its target user and the notice message to edit. Returns `None` for any other
+/// `custom_id`.
+pub fn parse_ban_confirm_custom_id(custom_id: &str) -> Option<(UserId, MessageId)> {
+    parse_confirm_custom_id(BAN_CONFIRM_CUSTOM_ID_PREFIX, custom_id)
+}
+
+/// Shared parser for the `{prefix}:{user_id}:{message_id}` confirmation ids.
+fn parse_confirm_custom_id(prefix: &str, custom_id: &str) -> Option<(UserId, MessageId)> {
+    let suffix = custom_id.strip_prefix(prefix)?.strip_prefix(':')?;
+    let (user, message) = suffix.split_once(':')?;
+    let user_id = UserId::new(user.parse::<u64>().ok()?);
+    let message_id = MessageId::new(message.parse::<u64>().ok()?);
+    Some((user_id, message_id))
+}
+
 /// Builds the action row carrying the `Unban` button for `user_id`.
 pub fn unban_action_row(user_id: UserId) -> CreateActionRow {
     let button = CreateButton::new(unban_custom_id(user_id))
         .style(ButtonStyle::Danger)
         .label("Unban");
     CreateActionRow::Buttons(vec![button])
+}
+
+/// Builds the cancel button shared by both ephemeral confirmations.
+fn cancel_button() -> CreateButton {
+    CreateButton::new(CANCEL_CUSTOM_ID)
+        .style(ButtonStyle::Secondary)
+        .label("Cancel")
+}
+
+/// Builds the confirmation action row for an unban: a danger `Confirm unban`
+/// button (carrying `message_id`) alongside `Cancel`.
+pub fn confirm_unban_action_row(user_id: UserId, message_id: MessageId) -> CreateActionRow {
+    let confirm = CreateButton::new(unban_confirm_custom_id(user_id, message_id))
+        .style(ButtonStyle::Danger)
+        .label("Confirm unban");
+    CreateActionRow::Buttons(vec![confirm, cancel_button()])
+}
+
+/// Builds the confirmation action row for a manual ban: a danger `Confirm ban`
+/// button (carrying `message_id`) alongside `Cancel`.
+pub fn confirm_ban_action_row(user_id: UserId, message_id: MessageId) -> CreateActionRow {
+    let confirm = CreateButton::new(ban_confirm_custom_id(user_id, message_id))
+        .style(ButtonStyle::Danger)
+        .label("Confirm ban");
+    CreateActionRow::Buttons(vec![confirm, cancel_button()])
 }
 
 /// Which honeypot fired, carried into the log embed.
@@ -444,6 +524,62 @@ mod tests {
         assert_eq!(parse_ban_custom_id("uhp_ban"), None);
         assert_eq!(parse_ban_custom_id("uhp_ban:"), None);
         assert_eq!(parse_ban_custom_id("uhp_ban:not_a_number"), None);
+    }
+
+    #[test]
+    fn parse_unban_confirm_custom_id_roundtrips() {
+        let user = UserId::new(123456789012345678);
+        let message = MessageId::new(987654321098765432);
+        assert_eq!(
+            parse_unban_confirm_custom_id(&unban_confirm_custom_id(user, message)),
+            Some((user, message))
+        );
+    }
+
+    #[test]
+    fn parse_ban_confirm_custom_id_roundtrips() {
+        let user = UserId::new(123456789012345678);
+        let message = MessageId::new(987654321098765432);
+        assert_eq!(
+            parse_ban_confirm_custom_id(&ban_confirm_custom_id(user, message)),
+            Some((user, message))
+        );
+    }
+
+    #[test]
+    fn confirm_parsers_reject_non_matching() {
+        // Missing message segment, wrong prefix, and non-numeric parts.
+        assert_eq!(parse_unban_confirm_custom_id("uhp_unban_do:123"), None);
+        assert_eq!(parse_unban_confirm_custom_id("uhp_unban_do:123:x"), None);
+        assert_eq!(parse_ban_confirm_custom_id("uhp_ban_do"), None);
+        assert_eq!(parse_ban_confirm_custom_id("uhp_ban_do:"), None);
+    }
+
+    #[test]
+    fn plain_and_confirm_custom_ids_do_not_collide() {
+        let user = UserId::new(123456789012345678);
+        let message = MessageId::new(987654321098765432);
+        // A confirm id must not be read as a plain button click, and a plain
+        // button id must not be read as a confirmation, in either direction.
+        assert_eq!(
+            parse_unban_custom_id(&unban_confirm_custom_id(user, message)),
+            None
+        );
+        assert_eq!(
+            parse_ban_custom_id(&ban_confirm_custom_id(user, message)),
+            None
+        );
+        assert_eq!(parse_unban_confirm_custom_id(&unban_custom_id(user)), None);
+        assert_eq!(parse_ban_confirm_custom_id(&ban_custom_id(user)), None);
+        // The two confirm prefixes are mutually exclusive as well.
+        assert_eq!(
+            parse_unban_confirm_custom_id(&ban_confirm_custom_id(user, message)),
+            None
+        );
+        assert_eq!(
+            parse_ban_confirm_custom_id(&unban_confirm_custom_id(user, message)),
+            None
+        );
     }
 
     #[test]
