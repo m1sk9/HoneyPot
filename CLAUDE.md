@@ -58,8 +58,9 @@ startup via `settings::dry_run()`; a startup `warn!` line confirms it is active.
 
 The **`preview`** Cargo feature (off by default) swaps the daemon for a one-shot
 embed previewer. With it, `main`'s `run()` reads `HONEYPOT_PREVIEW_CHANNEL`, posts
-one message per log-embed variant (built with the *real* builders, so previews
-can't drift) to that channel via REST, and exits — no config load, no gateway.
+one message per log-embed variant *in each supported language* (built with the
+*real* builders, so previews can't drift) to that channel via REST, and exits —
+no config load, no gateway. The captions are language-tagged (`[EN]`/`[JA]`).
 Run it with `cargo run --features preview`. Lives in `src/discord/preview.rs`;
 `main.rs` selects the preview vs. normal `run()` with `#[cfg(feature = "preview")]`
 (and allows dead code crate-wide under the feature, since the normal path is then

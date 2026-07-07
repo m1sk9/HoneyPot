@@ -1,11 +1,11 @@
 //! Embed preview mode (compiled only under the `preview` feature).
 //!
 //! When the crate is built with `--features preview`, `main` posts one message
-//! per honeypot log-embed variant to the channel named by
-//! [`PREVIEW_CHANNEL_ENV`], then exits without connecting to the gateway or
-//! reading the guild config. This lets the embed layouts be reviewed on any
-//! Discord client — including mobile, where the moderator view is unavailable —
-//! without tripping a real honeypot.
+//! per honeypot log-embed variant — in *every* [`Language`] — to the channel
+//! named by [`PREVIEW_CHANNEL_ENV`], then exits without connecting to the
+//! gateway or reading the guild config. This lets the embed layouts (and each
+//! localization) be reviewed on any Discord client — including mobile, where the
+//! moderator view is unavailable — without tripping a real honeypot.
 //!
 //! The samples are built with the *real* embed builders ([`ban::build_ban_embed`],
 //! [`ban::build_pending_embed`], [`interaction::resolved_embed`],
@@ -15,8 +15,9 @@
 
 use crate::discord::{ban, interaction};
 use crate::error::HoneyPotError;
+use crate::i18n::Language;
 use serenity::all::{
-    ButtonStyle, ChannelId, CreateActionRow, CreateButton, CreateEmbed, CreateMessage, Http,
+    ButtonStyle, ChannelId, CreateActionRow, CreateButton, CreateEmbed, CreateMessage, Embed, Http,
     RoleId, Timestamp, User, UserId, UserPublicFlags,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -34,7 +35,8 @@ const HOUR_MS: u64 = 3_600_000;
 /// Milliseconds in a day, for readable sample timestamps.
 const DAY_MS: u64 = 86_400_000;
 
-/// Posts one of each honeypot log embed to `channel_id`, then returns.
+/// Posts one of each honeypot log embed, in every supported language, to
+/// `channel_id`, then returns.
 ///
 /// Sends over REST via a fresh [`Http`]; no gateway connection or privileged
 /// intent is needed. A send failure aborts the run and surfaces as an error so
@@ -51,8 +53,13 @@ pub async fn run(token: &str, channel_id: ChannelId) -> Result<(), HoneyPotError
     Ok(())
 }
 
-/// Builds the sample messages: one per log-embed variant, each prefixed with a
-/// short caption so they can be told apart in the channel.
+/// Builds the sample messages: one per log-embed variant in every supported
+/// language, each captioned with its language tag and variant so they can be
+/// told apart in the channel. The fabricated offenders, moderator, contexts, and
+/// triggers are language-independent, so they are built once and reused by
+/// reference across languages; only the builders' `language` argument differs.
+/// Rendering both languages also doubles as a side-by-side check that the
+/// `en`/`ja` catalogs read correctly.
 fn sample_messages(channel_id: ChannelId) -> Vec<CreateMessage> {
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -97,52 +104,94 @@ fn sample_messages(channel_id: ChannelId) -> Vec<CreateMessage> {
     };
     let role_trigger = ban::BanTrigger::Role(RoleId::new(1_234_567_890_123_456_789));
 
-    // A non-functional stand-in for the untrusted-bot notice's Ban button; the
-    // preview run never handles interactions.
-    let ban_notice_button = CreateActionRow::Buttons(vec![
-        CreateButton::new("preview_ban_noop")
-            .style(ButtonStyle::Danger)
-            .label("Ban"),
-    ]);
+    // Post the full set once per supported language, tagging each caption with
+    // the language so both renderings can be compared in the channel.
+    let mut messages = Vec::new();
+    for language in [Language::En, Language::Ja] {
+        let tag = language_tag(language);
 
-    vec![
-        captioned(
-            "**Preview 1/5** — user banned (channel trigger)",
-            ban::build_ban_embed(&offender, &channel_trigger, &flagged),
-        )
-        .components(vec![ban::unban_action_row(offender.id)]),
-        captioned(
-            "**Preview 2/5** — user banned (role trigger, established account)",
-            ban::build_ban_embed(&offender, &role_trigger, &established),
-        )
-        .components(vec![ban::unban_action_row(offender.id)]),
-        captioned(
-            "**Preview 3/5** — untrusted bot notice (awaiting manual review)",
-            ban::build_pending_embed(&sus_bot, &channel_trigger, &flagged),
-        )
-        .components(vec![ban_notice_button]),
-        captioned(
-            "**Preview 4/5** — ban lifted (after unban confirmation)",
+        // A non-functional stand-in for the untrusted-bot notice's Ban button;
+        // the preview run never handles interactions.
+        let ban_notice_button = CreateActionRow::Buttons(vec![
+            CreateButton::new("preview_ban_noop")
+                .style(ButtonStyle::Danger)
+                .label(language.messages().btn_ban),
+        ]);
+
+        messages.push(
+            captioned(
+                &format!("**[{tag}] Preview 1/5** — user banned (channel trigger)"),
+                ban::build_ban_embed(&offender, &channel_trigger, &flagged, language),
+            )
+            .components(vec![ban::unban_action_row(offender.id, language)]),
+        );
+        messages.push(
+            captioned(
+                &format!(
+                    "**[{tag}] Preview 2/5** — user banned (role trigger, established account)"
+                ),
+                ban::build_ban_embed(&offender, &role_trigger, &established, language),
+            )
+            .components(vec![ban::unban_action_row(offender.id, language)]),
+        );
+        messages.push(
+            captioned(
+                &format!("**[{tag}] Preview 3/5** — untrusted bot notice (awaiting manual review)"),
+                ban::build_pending_embed(&sus_bot, &channel_trigger, &flagged, language),
+            )
+            .components(vec![ban_notice_button]),
+        );
+        messages.push(captioned(
+            &format!("**[{tag}] Preview 4/5** — ban lifted (after unban confirmation)"),
             interaction::resolved_embed(
-                Some(ban::build_ban_embed(&offender, &channel_trigger, &flagged)),
-                offender.id,
-                &moderator,
-            ),
-        ),
-        captioned(
-            "**Preview 5/5** — bot banned (after manual confirmation)",
-            interaction::manually_banned_embed(
-                Some(ban::build_pending_embed(
-                    &sus_bot,
+                Some(as_received(ban::build_ban_embed(
+                    &offender,
                     &channel_trigger,
                     &flagged,
-                )),
-                sus_bot.id,
+                    language,
+                ))),
+                offender.id,
                 &moderator,
+                language,
             ),
-        )
-        .components(vec![ban::unban_action_row(sus_bot.id)]),
-    ]
+        ));
+        messages.push(
+            captioned(
+                &format!("**[{tag}] Preview 5/5** — bot banned (after manual confirmation)"),
+                interaction::manually_banned_embed(
+                    Some(as_received(ban::build_pending_embed(
+                        &sus_bot,
+                        &channel_trigger,
+                        &flagged,
+                        language,
+                    ))),
+                    sus_bot.id,
+                    &moderator,
+                    language,
+                ),
+            )
+            .components(vec![ban::unban_action_row(sus_bot.id, language)]),
+        );
+    }
+    messages
+}
+
+/// Round-trips a freshly built embed into the received-message [`Embed`] form the
+/// rewrite builders consume in production. This lets the previews exercise the
+/// real rewrite path — including the lifted-ban embed dropping its warnings field
+/// — rather than a preview-only shortcut. `CreateEmbed` serializes transparently
+/// as its inner `Embed`, so the round-trip is lossless.
+fn as_received(embed: CreateEmbed) -> Embed {
+    let value = serenity::json::to_value(embed).expect("preview embed serializes");
+    serenity::json::from_value(value).expect("preview embed round-trips")
+}
+
+/// Short uppercase tag for a preview caption, e.g. `EN`.
+fn language_tag(language: Language) -> &'static str {
+    match language {
+        Language::En => "EN",
+        Language::Ja => "JA",
+    }
 }
 
 /// A [`UserId`] whose snowflake encodes `created_ms` as its creation time, so

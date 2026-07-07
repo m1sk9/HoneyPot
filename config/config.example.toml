@@ -12,6 +12,10 @@
 # honeypot is not auto-banned but flagged for manual review; bots listed here
 # are ignored entirely (e.g. a link-expander bot that echoes into a honeypot
 # channel). Non-bot accounts are always banned immediately.
+#
+# `language` sets the language of this guild's moderator-facing text (the log
+# embeds and button responses): "en" (English) or "ja" (Japanese). It is
+# optional and defaults to "en" when omitted.
 
 [[guilds]]
 guild_id             = 100000000000000000
@@ -19,6 +23,7 @@ honeypot_role_ids    = [200000000000000000]
 honeypot_channel_ids = [300000000000000000]
 trusted_bot_ids      = [500000000000000000]
 log_channel_id       = 400000000000000000
+language             = "en"
 
 [[guilds]]
 guild_id             = 111111111111111111
@@ -26,3 +31,4 @@ honeypot_role_ids    = [222222222222222222]
 honeypot_channel_ids = []
 trusted_bot_ids      = []
 log_channel_id       = 444444444444444444
+language             = "ja"

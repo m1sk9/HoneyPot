@@ -6,6 +6,7 @@
 
 use crate::config::{self, GuildConfigEntry};
 use crate::error::HoneyPotError;
+use crate::i18n::Language;
 use serenity::all::{ChannelId, GuildId, RoleId, UserId};
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -62,6 +63,8 @@ pub struct GuildConfig {
     pub trusted_bot_ids: Vec<UserId>,
     /// Channel where ban notifications are sent.
     pub log_channel_id: ChannelId,
+    /// Language for this guild's moderator-facing text.
+    pub language: Language,
 }
 
 impl From<GuildConfigEntry> for GuildConfig {
@@ -79,6 +82,7 @@ impl From<GuildConfigEntry> for GuildConfig {
                 .collect(),
             trusted_bot_ids: entry.trusted_bot_ids.into_iter().map(UserId::new).collect(),
             log_channel_id: ChannelId::new(entry.log_channel_id),
+            language: entry.language,
         }
     }
 }
@@ -135,6 +139,7 @@ mod tests {
             honeypot_channel_ids: vec![300000000000000000],
             trusted_bot_ids: vec![500000000000000000],
             log_channel_id: 400000000000000000,
+            language: Language::En,
         }
     }
 
