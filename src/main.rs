@@ -3,17 +3,23 @@
 //! Bots (and users) that step into a configured honeypot — acquiring a
 //! honeypot role or posting in a honeypot channel — are banned. This binary
 //! bootstraps configuration, logging, and the Discord client.
+//!
+//! Built with the `preview` feature, [`run`] instead posts a sample of every
+//! log embed to a channel and exits (see [`discord::preview`]); the default
+//! build compiles only the normal gateway path.
+
+// Under the `preview` feature the normal gateway path (config loading, the event
+// handler, …) is compiled but unused, since `run` posts previews and exits.
+// Silence dead-code warnings for that debug build only; the default (production)
+// build keeps full dead-code checking.
+#![cfg_attr(feature = "preview", allow(dead_code))]
 
 mod config;
 mod discord;
 mod error;
 mod settings;
 
-use crate::discord::handler::HoneyPotEventHandler;
 use crate::error::HoneyPotError;
-use crate::settings::HoneyPotConfig;
-use serenity::Client;
-use serenity::all::GatewayIntents;
 use tracing_subscriber::EnvFilter;
 
 /// Environment variable holding the Discord bot token.
@@ -40,6 +46,17 @@ async fn main() -> Result<(), HoneyPotError> {
         .with_env_filter(filter)
         .json()
         .init();
+
+    run().await
+}
+
+/// Normal operation: load the guild config and connect to the gateway.
+#[cfg(not(feature = "preview"))]
+async fn run() -> Result<(), HoneyPotError> {
+    use crate::discord::handler::HoneyPotEventHandler;
+    use crate::settings::HoneyPotConfig;
+    use serenity::Client;
+    use serenity::all::GatewayIntents;
 
     HoneyPotConfig::init()?;
     tracing::debug!("Config: {:?}", HoneyPotConfig::get());
@@ -70,4 +87,27 @@ async fn main() -> Result<(), HoneyPotError> {
     client.start().await?;
 
     Ok(())
+}
+
+/// Preview mode (`preview` feature): post one of each honeypot log embed to the
+/// channel named by [`discord::preview::PREVIEW_CHANNEL_ENV`], then exit. Reads
+/// no guild config and opens no gateway connection.
+#[cfg(feature = "preview")]
+async fn run() -> Result<(), HoneyPotError> {
+    use crate::discord::preview;
+    use serenity::all::ChannelId;
+
+    let token = std::env::var(BOT_TOKEN_ENV)
+        .map_err(|_| HoneyPotError::MissingEnv(BOT_TOKEN_ENV.to_string()))?;
+    let channel = std::env::var(preview::PREVIEW_CHANNEL_ENV)
+        .map_err(|_| HoneyPotError::MissingEnv(preview::PREVIEW_CHANNEL_ENV.to_string()))?;
+    let channel_id = channel
+        .parse::<u64>()
+        .map_err(|_| HoneyPotError::InvalidEnv(preview::PREVIEW_CHANNEL_ENV.to_string()))?;
+
+    tracing::warn!(
+        channel_id,
+        "preview feature active: posting embed previews, then exiting"
+    );
+    preview::run(&token, ChannelId::new(channel_id)).await
 }

@@ -18,6 +18,13 @@ pub enum HoneyPotError {
     /// A required environment variable is missing.
     #[error("Missing environment variable: {0}")]
     MissingEnv(String),
+    /// An environment variable held a value that could not be parsed.
+    ///
+    /// Only produced by the preview mode (see `discord::preview`), so it is
+    /// gated on that feature to stay out of the production build.
+    #[cfg(feature = "preview")]
+    #[error("Invalid value for environment variable: {0}")]
+    InvalidEnv(String),
     /// Failed to load the `.env` file (parse or I/O error; a missing file is
     /// not treated as an error).
     #[error("Failed to load .env file: {0}")]

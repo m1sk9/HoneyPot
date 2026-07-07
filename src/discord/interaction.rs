@@ -333,7 +333,11 @@ fn has_ban_permission(component: &ComponentInteraction) -> bool {
 /// Reuses the original log embed (`base`, preserving the trigger details) when
 /// present, recoloring it, retitling it, and appending who lifted the ban.
 /// Falls back to a minimal embed if the original message carried none.
-fn resolved_embed(base: Option<CreateEmbed>, target_id: UserId, moderator: &User) -> CreateEmbed {
+pub(crate) fn resolved_embed(
+    base: Option<CreateEmbed>,
+    target_id: UserId,
+    moderator: &User,
+) -> CreateEmbed {
     let base = base.unwrap_or_else(|| {
         CreateEmbed::new().field("User", target_id.mention().to_string(), false)
     });
@@ -350,7 +354,7 @@ fn resolved_embed(base: Option<CreateEmbed>, target_id: UserId, moderator: &User
 /// Reuses the pending notice embed (`base`, preserving the trigger details) when
 /// present, recoloring it, retitling it, replacing the pending description, and
 /// appending who confirmed the ban.
-fn manually_banned_embed(
+pub(crate) fn manually_banned_embed(
     base: Option<CreateEmbed>,
     target_id: UserId,
     moderator: &User,

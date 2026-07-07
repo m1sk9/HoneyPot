@@ -7,8 +7,23 @@ repository = "https://github.com/m1sk9/HoneyPot"
 readme = "README.md"
 description = "A Discord bot that automatically bans spam bots via honeypot roles and channels."
 
+[features]
+# Compiles in the embed preview mode (`src/discord/preview.rs`). When enabled,
+# running the binary posts one of every honeypot log embed to the channel named
+# by HONEYPOT_PREVIEW_CHANNEL and exits, instead of connecting to the gateway.
+# Off by default, so the preview code and its fabricated sample data are absent
+# from the production build. Enable with `cargo run --features preview`.
+preview = []
+
 [dependencies]
-serenity = { version = "0.12.5", default-features = false, features = ["client", "gateway", "model", "rustls_backend"] }
+# `unstable_discord_api` is enabled only to expose `UserPublicFlags::SPAMMER`
+# (Discord's "likely spammer" mark, bit 20). serenity's bitflags deserializer
+# uses `from_bits_truncate`, so that bit is dropped from `User::public_flags`
+# unless the flag is defined — which it is only behind this feature. It surfaces
+# in the honeypot log embed's "Badges" field as a moderator decision aid.
+# Trade-off: this feature is unstable and its API may change across serenity
+# minor releases, so pin/verify serenity on upgrade.
+serenity = { version = "0.12.5", default-features = false, features = ["client", "gateway", "model", "rustls_backend", "unstable_discord_api"] }
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
 toml = "1.1.2"
 serde = { version = "1.0.228", features = ["derive"] }
