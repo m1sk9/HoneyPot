@@ -286,15 +286,25 @@ fn message_field(content: &str) -> String {
     format!("```\n{body}\n```")
 }
 
-/// Appends a "Message" field carrying the offending message's content when the
-/// trigger captured a non-empty one. A no-op for role triggers and for messages
-/// whose content wasn't captured.
-fn with_message_field(embed: CreateEmbed, trigger: &BanTrigger) -> CreateEmbed {
+/// The formatted "Message" field value for `trigger`, or `None` when there is
+/// nothing to show (a role trigger, or a channel trigger whose content wasn't
+/// captured or was empty).
+///
+/// Kept pure and separate from [`with_message_field`] so the "show it or not"
+/// decision stays unit-testable without constructing an embed.
+fn message_field_value(trigger: &BanTrigger) -> Option<String> {
     match trigger.message_content() {
-        Some(content) if !content.is_empty() => {
-            embed.field("Message", message_field(content), false)
-        }
-        _ => embed,
+        Some(content) if !content.is_empty() => Some(message_field(content)),
+        _ => None,
+    }
+}
+
+/// Appends a "Message" field carrying the offending message's content when
+/// [`message_field_value`] has something to show. A no-op otherwise.
+fn with_message_field(embed: CreateEmbed, trigger: &BanTrigger) -> CreateEmbed {
+    match message_field_value(trigger) {
+        Some(value) => embed.field("Message", value, false),
+        None => embed,
     }
 }
 
@@ -669,6 +679,36 @@ mod tests {
             }
             .message_content(),
             Some("spam")
+        );
+    }
+
+    #[test]
+    fn message_field_value_shown_only_for_non_empty_channel_content() {
+        // Role trigger: never a message.
+        assert_eq!(message_field_value(&BanTrigger::Role(RoleId::new(1))), None);
+        // Channel trigger without captured content.
+        assert_eq!(
+            message_field_value(&BanTrigger::Channel {
+                channel_id: ChannelId::new(1),
+                content: None,
+            }),
+            None
+        );
+        // Channel trigger with empty content is suppressed.
+        assert_eq!(
+            message_field_value(&BanTrigger::Channel {
+                channel_id: ChannelId::new(1),
+                content: Some(String::new()),
+            }),
+            None
+        );
+        // Channel trigger with real content is formatted.
+        assert_eq!(
+            message_field_value(&BanTrigger::Channel {
+                channel_id: ChannelId::new(1),
+                content: Some("spam".to_string()),
+            }),
+            Some("```\nspam\n```".to_string())
         );
     }
 
