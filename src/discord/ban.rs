@@ -276,40 +276,6 @@ const NEW_ACCOUNT_WARN_DAYS: i64 = 7;
 /// Seconds in a day, for the [`NEW_ACCOUNT_WARN_DAYS`] age comparison.
 const SECONDS_PER_DAY: i64 = 86_400;
 
-/// Public flags surfaced in the log embed's "Badges" field, most trust-relevant
-/// first. These argue *for* an account's legitimacy, so a moderator seeing none
-/// on an offender has one more reason to ban.
-///
-/// Discord's `SPAMMER` flag (bit 20) is intentionally *not* listed here — it
-/// argues the opposite way, so [`flags_field`] surfaces it separately with a
-/// warning. Note that `UserPublicFlags::SPAMMER` only exists (and only survives
-/// serenity's `from_bits_truncate` deserialization) when the `unstable_discord_api`
-/// feature is enabled; see the serenity dependency comment in `Cargo.toml`.
-const NOTABLE_FLAGS: [(UserPublicFlags, &str); 13] = [
-    (UserPublicFlags::VERIFIED_BOT, "Verified Bot"),
-    (
-        UserPublicFlags::EARLY_VERIFIED_BOT_DEVELOPER,
-        "Early Verified Bot Developer",
-    ),
-    (UserPublicFlags::EARLY_SUPPORTER, "Early Supporter"),
-    (UserPublicFlags::ACTIVE_DEVELOPER, "Active Developer"),
-    (
-        UserPublicFlags::PARTNERED_SERVER_OWNER,
-        "Partnered Server Owner",
-    ),
-    (UserPublicFlags::DISCORD_EMPLOYEE, "Discord Staff"),
-    (
-        UserPublicFlags::DISCORD_CERTIFIED_MODERATOR,
-        "Certified Moderator",
-    ),
-    (UserPublicFlags::HYPESQUAD_EVENTS, "HypeSquad Events"),
-    (UserPublicFlags::HOUSE_BRAVERY, "HypeSquad Bravery"),
-    (UserPublicFlags::HOUSE_BRILLIANCE, "HypeSquad Brilliance"),
-    (UserPublicFlags::HOUSE_BALANCE, "HypeSquad Balance"),
-    (UserPublicFlags::BUG_HUNTER_LEVEL_1, "Bug Hunter"),
-    (UserPublicFlags::BUG_HUNTER_LEVEL_2, "Bug Hunter Gold"),
-];
-
 /// Formats the target user field: mention, display name, tag, and raw ID.
 ///
 /// The tag and display name embed user-controlled text inside inline code spans,
@@ -376,31 +342,20 @@ fn account_type_field(target: &User) -> String {
     )
 }
 
-/// The "Badges" field value: Discord's spammer warning (if flagged) followed by
-/// the account's [`NOTABLE_FLAGS`], or `None` when it carries neither.
-fn flags_field(target: &User) -> String {
-    let Some(flags) = target.public_flags else {
-        return "None".to_string();
-    };
-    let mut lines: Vec<String> = Vec::new();
-    // The SPAMMER flag is the one badge that argues *for* a ban, so it leads the
-    // field with a warning. `UserPublicFlags::SPAMMER` only exists because serenity
-    // is built with `unstable_discord_api` (enabled in `Cargo.toml`); no cfg gate
-    // is needed here since that feature is always on for this crate's build.
-    if flags.contains(UserPublicFlags::SPAMMER) {
-        lines.push("⚠ Marked by Discord as a likely spammer".to_string());
-    }
-    lines.extend(
-        NOTABLE_FLAGS
-            .iter()
-            .filter(|(flag, _)| flags.contains(*flag))
-            .map(|(_, label)| (*label).to_string()),
-    );
-    if lines.is_empty() {
-        "None".to_string()
-    } else {
-        lines.join("\n")
-    }
+/// The "Spam flag" field value, present only when Discord has flagged the
+/// account as a likely spammer. Returns `None` otherwise so the field is omitted
+/// for the common case — the account's other badges are deliberately not shown,
+/// as they argue for legitimacy and are near-useless (and mostly absent) on the
+/// spam accounts this bot exists to catch.
+///
+/// `UserPublicFlags::SPAMMER` only exists because serenity is built with
+/// `unstable_discord_api` (enabled in `Cargo.toml`); serenity's bitflags
+/// deserializer would otherwise truncate the bit out of `public_flags`.
+fn spammer_field(target: &User) -> Option<String> {
+    target
+        .public_flags?
+        .contains(UserPublicFlags::SPAMMER)
+        .then(|| "⚠ Marked by Discord as a likely spammer".to_string())
 }
 
 /// The "Joined server" field value, or `Unknown` when the trigger did not carry
@@ -432,15 +387,17 @@ fn with_offender_fields(
     offender: &OffenderContext,
 ) -> CreateEmbed {
     let now = Timestamp::now();
-    let embed = embed
+    let mut embed = embed
         .field("Account created", created_field(target, now), false)
         .field("Joined server", joined_field(offender), true)
-        .field("Avatar", avatar_field(target), true)
-        .field("Badges", flags_field(target), false);
-    match unusual_dm_field(offender, now) {
-        Some(value) => embed.field("Unusual DM activity", value, false),
-        None => embed,
+        .field("Avatar", avatar_field(target), true);
+    if let Some(value) = spammer_field(target) {
+        embed = embed.field("Spam flag", value, false);
     }
+    if let Some(value) = unusual_dm_field(offender, now) {
+        embed = embed.field("Unusual DM activity", value, false);
+    }
+    embed
 }
 
 /// Maximum characters of message content shown in the log embed.
@@ -1084,30 +1041,24 @@ mod tests {
     }
 
     #[test]
-    fn flags_field_none_when_absent_or_empty() {
+    fn spammer_field_absent_unless_flagged() {
         let mut user = User::default();
+        // No public flags at all.
         user.public_flags = None;
-        assert_eq!(flags_field(&user), "None");
-        user.public_flags = Some(UserPublicFlags::empty());
-        assert_eq!(flags_field(&user), "None");
+        assert_eq!(spammer_field(&user), None);
+        // Flags present, but not SPAMMER (a legitimacy badge alone is ignored).
+        user.public_flags = Some(UserPublicFlags::VERIFIED_BOT);
+        assert_eq!(spammer_field(&user), None);
     }
 
     #[test]
-    fn flags_field_lists_notable_flags() {
-        let mut user = User::default();
-        user.public_flags = Some(UserPublicFlags::VERIFIED_BOT | UserPublicFlags::ACTIVE_DEVELOPER);
-        let field = flags_field(&user);
-        assert!(field.contains("Verified Bot"));
-        assert!(field.contains("Active Developer"));
-    }
-
-    #[test]
-    fn flags_field_surfaces_spammer_warning_first() {
+    fn spammer_field_present_when_flagged() {
         let mut user = User::default();
         user.public_flags = Some(UserPublicFlags::SPAMMER | UserPublicFlags::VERIFIED_BOT);
-        let field = flags_field(&user);
-        assert!(field.starts_with("⚠ Marked by Discord as a likely spammer"));
-        assert!(field.contains("Verified Bot"));
+        assert_eq!(
+            spammer_field(&user),
+            Some("⚠ Marked by Discord as a likely spammer".to_string())
+        );
     }
 
     #[test]
