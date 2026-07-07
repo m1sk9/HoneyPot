@@ -315,7 +315,7 @@ fn created_field(target: &User, now: Timestamp) -> String {
     let created = target.created_at();
     let stamp = timestamp_field(created);
     if is_new_account(created, now) {
-        format!("⚠ {stamp}\n**New account** (under {NEW_ACCOUNT_WARN_DAYS} days old)")
+        format!("⚠️ {stamp}\n**New account** (under {NEW_ACCOUNT_WARN_DAYS} days old)")
     } else {
         stamp
     }
@@ -325,7 +325,7 @@ fn created_field(target: &User, now: Timestamp) -> String {
 /// trait of throwaway spam accounts, so it is flagged.
 fn avatar_field(target: &User) -> &'static str {
     if target.avatar.is_none() {
-        "⚠ Default (no custom avatar)"
+        "⚠️ Default (no custom avatar)"
     } else {
         "Custom"
     }
@@ -355,7 +355,7 @@ fn spammer_field(target: &User) -> Option<String> {
     target
         .public_flags?
         .contains(UserPublicFlags::SPAMMER)
-        .then(|| "⚠ Marked by Discord as a likely spammer".to_string())
+        .then(|| "⚠️ Marked by Discord as a likely spammer".to_string())
 }
 
 /// The "Joined server" field value, or `Unknown` when the trigger did not carry
@@ -373,7 +373,7 @@ fn joined_field(offender: &OffenderContext) -> String {
 fn unusual_dm_field(offender: &OffenderContext, now: Timestamp) -> Option<String> {
     let until = offender.unusual_dm_activity_until?;
     (until.unix_timestamp() > now.unix_timestamp())
-        .then(|| format!("⚠ Flagged until {}", timestamp_field(until)))
+        .then(|| format!("⚠️ Flagged until {}", timestamp_field(until)))
 }
 
 /// Appends the shared offender-detail fields (creation date, join date, avatar,
@@ -453,7 +453,7 @@ fn with_message_field(embed: CreateEmbed, trigger: &BanTrigger) -> CreateEmbed {
 pub(crate) fn apply_dry_run_marker(embed: CreateEmbed) -> CreateEmbed {
     if crate::settings::dry_run() {
         embed.footer(CreateEmbedFooter::new(
-            "⚠ DRY-RUN — no ban/unban was executed",
+            "⚠️ DRY-RUN — no ban/unban was executed",
         ))
     } else {
         embed
@@ -1061,7 +1061,7 @@ mod tests {
         user.public_flags = Some(UserPublicFlags::SPAMMER | UserPublicFlags::VERIFIED_BOT);
         assert_eq!(
             spammer_field(&user),
-            Some("⚠ Marked by Discord as a likely spammer".to_string())
+            Some("⚠️ Marked by Discord as a likely spammer".to_string())
         );
     }
 

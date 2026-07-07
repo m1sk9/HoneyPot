@@ -51,7 +51,7 @@ and `confirm_bot_ban`, `unban` in `perform_unban`) are skipped and treated as
 success, while detection, log-embed posting, buttons, the two-step confirmation,
 embed edits, and `HANDLED_BANS` claim/release all run for real. So you can trip a
 honeypot on your own account and watch the whole flow — the log embed carries a
-`⚠ DRY-RUN` footer — without actually being banned. The flag is read once at
+`⚠️ DRY-RUN` footer — without actually being banned. The flag is read once at
 startup via `settings::dry_run()`; a startup `warn!` line confirms it is active.
 
 ### Preview mode

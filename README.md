@@ -132,7 +132,7 @@ environment variable.
 | `HONEYPOT_PREVIEW_CHANNEL` | Channel to post embed previews to. Only read in `--features preview` builds. | —                 |
 
 When `HONEYPOT_DRY_RUN` is enabled, detection, log embeds, and buttons all run
-normally, but no member is banned or unbanned — the log embed shows a `⚠ DRY-RUN`
+normally, but no member is banned or unbanned — the log embed shows a `⚠️ DRY-RUN`
 footer. This lets you debug the whole flow on your own account without needing a
 throwaway account.
 
