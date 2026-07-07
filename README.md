@@ -39,13 +39,16 @@ ID**. You will need:
 - The **log channel ID** — where ban notifications are posted.
 
 > [!IMPORTANT]
-> HoneyPot needs the **`GUILD_MEMBERS`** privileged intent to observe role
-> changes. In the [Discord Developer Portal](https://discord.com/developers/applications),
-> open your application's **Bot** tab, enable **Server Members Intent**
-> (`GUILD_MEMBERS`) under **Privileged Gateway Intents**, and save — this is also
-> where you copy the bot token for `HONEYPOT_BOT_TOKEN`. `MESSAGE_CONTENT` is
-> intentionally not requested. The bot also needs the **Ban Members** permission
-> in every guild it moderates.
+> HoneyPot needs two privileged intents: **`GUILD_MEMBERS`** to observe role
+> changes, and **`MESSAGE_CONTENT`** to record the offending message on a
+> channel-triggered ban (so a moderator can confirm it was spam). In the
+> [Discord Developer Portal](https://discord.com/developers/applications), open
+> your application's **Bot** tab, enable both **Server Members Intent**
+> (`GUILD_MEMBERS`) and **Message Content Intent** (`MESSAGE_CONTENT`) under
+> **Privileged Gateway Intents**, and save — this is also where you copy the bot
+> token for `HONEYPOT_BOT_TOKEN`. If either intent is left disabled the gateway
+> refuses the connection and the bot will not start. The bot also needs the
+> **Ban Members** permission in every guild it moderates.
 
 ### 2. Configure HoneyPot
 
