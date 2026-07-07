@@ -73,13 +73,23 @@ Data flows in one direction: TOML file → raw config → runtime settings → e
 handlers → ban module → Discord.
 
 - **`src/config.rs`** — raw `config.toml` representation. IDs are bare `u64`
-  here (`GuildConfigEntry`). Owns file loading/parsing only.
+  here (`GuildConfigEntry`), plus an optional `language` (defaults to `en`). Owns
+  file loading/parsing only.
 - **`src/settings.rs`** — converts raw entries into `serenity` ID types and
   stores them in a global `OnceLock<HoneyPotConfig>` keyed by `GuildId` for O(1)
   lookup. `HoneyPotConfig::init()` is called once from `main`; `::get()` panics
   if called before init. Config path defaults to `config/config.toml`, overridable
   via `HONEYPOT_CONFIG_PATH`. Also owns `dry_run()` — the cached `HONEYPOT_DRY_RUN`
   flag that the ban paths consult to skip the actual Discord ban/unban calls.
+  `GuildConfig` also carries the guild's `language` (see `src/i18n.rs`).
+- **`src/i18n.rs`** — per-guild localization for all moderator-facing text. The
+  `Language` enum (`en`/`ja`, deserialized from the `language` config key,
+  defaulting to `en`) and one `const Messages` catalog per language. Both catalogs
+  are `const`, so adding a `Messages` field forces every language to define it or
+  the crate fails to compile — translation gaps are build-time errors. The chosen
+  `Language` is threaded into every embed/response builder in `ban.rs` and
+  `interaction.rs`; detection logic stays language-free. The audit-log ban reason
+  is deliberately **not** localized (kept English via `BanTrigger::kind`).
 - **`src/main.rs`** — bootstraps `.env` (missing file is not an error), JSON
   `tracing` logging (`RUST_LOG`, default `honeypot=info`), config, and the
   serenity client with the four gateway intents.
