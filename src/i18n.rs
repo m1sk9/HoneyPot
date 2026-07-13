@@ -51,7 +51,6 @@ impl Language {
 /// Fields carrying a `{}` are templates (see the module docs); the rest are
 /// literal labels. See [`EN`] for the canonical wording of each field.
 pub struct Messages {
-    // Embed titles and descriptions.
     /// Title of the auto-ban log embed.
     pub ban_title: &'static str,
     /// Title of the untrusted-bot notice embed.
@@ -65,7 +64,6 @@ pub struct Messages {
     /// Description of the embed after a bot is manually banned.
     pub bot_banned_desc: &'static str,
 
-    // Embed field names.
     /// "User" field name.
     pub field_user: &'static str,
     /// "Trigger" field name.
@@ -90,13 +88,11 @@ pub struct Messages {
     /// Label for a channel trigger.
     pub trigger_channel: &'static str,
 
-    // Field-value fragments.
     /// "Display" label inside the "User" field.
     pub display_label: &'static str,
     /// "ID" label inside the "User" field.
     pub id_label: &'static str,
 
-    // Warning lines listed in the "Warnings" field. Each carries its own `⚠️`.
     /// New-account warning line; `{}` is the age threshold in days.
     pub new_account: &'static str,
     /// Warning line shown when the account has no custom avatar.
@@ -117,7 +113,6 @@ pub struct Messages {
     /// "Joined server" value when the join date is unknown.
     pub joined_unknown: &'static str,
 
-    // Button labels.
     /// "Unban" button label.
     pub btn_unban: &'static str,
     /// "Ban" button label.
@@ -129,7 +124,6 @@ pub struct Messages {
     /// "Confirm ban" button label.
     pub btn_confirm_ban: &'static str,
 
-    // Ephemeral responses and confirmation prompts.
     /// Rejection shown when the clicker lacks Ban Members for an unban.
     pub perm_needed_unban: &'static str,
     /// Rejection shown when the clicker lacks Ban Members for a ban.

@@ -157,7 +157,6 @@ async fn perform_unban(
         return;
     }
 
-    // Allow the offender to be banned again if they re-trip a honeypot.
     ban::forget_ban(guild_id, target_id);
 
     tracing::info!(

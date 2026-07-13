@@ -38,7 +38,6 @@ async fn main() -> Result<(), HoneyPotError> {
         return Err(HoneyPotError::Dotenv(error));
     }
 
-    // `RUST_LOG` takes precedence; otherwise default this crate to `info`.
     // The tracing target root is the crate name, so derive it from
     // `CARGO_CRATE_NAME` to stay correct across renames.
     let filter = EnvFilter::try_from_default_env()

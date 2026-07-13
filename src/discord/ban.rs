@@ -495,7 +495,6 @@ pub(crate) fn build_ban_embed(
         )
         .field(msg.field_account, account_type_field(target, msg), true)
         .timestamp(Timestamp::now());
-    // The offending message (channel triggers only) goes in the description.
     if let Some(body) = message_field_value(trigger) {
         embed = embed.description(body);
     }
@@ -526,8 +525,6 @@ pub(crate) fn build_pending_embed(
     language: Language,
 ) -> CreateEmbed {
     let msg = language.messages();
-    // The notice text leads the description; the offending message (channel
-    // triggers only) follows it.
     let description = match message_field_value(trigger) {
         Some(body) => format!("{}\n\n{}", msg.pending_desc, body),
         None => msg.pending_desc.to_string(),
@@ -809,8 +806,6 @@ mod tests {
     #[test]
     fn ban_and_unban_custom_ids_do_not_collide() {
         let id = UserId::new(123456789012345678);
-        // Each parser must reject the other's id so the interaction dispatcher
-        // can tell a manual-ban click from an unban click.
         assert_eq!(parse_unban_custom_id(&ban_custom_id(id)), None);
         assert_eq!(parse_ban_custom_id(&unban_custom_id(id)), None);
     }
@@ -845,7 +840,6 @@ mod tests {
 
     #[test]
     fn confirm_parsers_reject_non_matching() {
-        // Missing message segment, wrong prefix, and non-numeric parts.
         assert_eq!(parse_unban_confirm_custom_id("uhp_unban_do:123"), None);
         assert_eq!(parse_unban_confirm_custom_id("uhp_unban_do:123:x"), None);
         assert_eq!(parse_ban_confirm_custom_id("uhp_ban_do"), None);
@@ -856,8 +850,6 @@ mod tests {
     fn plain_and_confirm_custom_ids_do_not_collide() {
         let user = UserId::new(123456789012345678);
         let message = MessageId::new(987654321098765432);
-        // A confirm id must not be read as a plain button click, and a plain
-        // button id must not be read as a confirmation, in either direction.
         assert_eq!(
             parse_unban_custom_id(&unban_confirm_custom_id(user, message)),
             None
@@ -868,7 +860,6 @@ mod tests {
         );
         assert_eq!(parse_unban_confirm_custom_id(&unban_custom_id(user)), None);
         assert_eq!(parse_ban_confirm_custom_id(&ban_custom_id(user)), None);
-        // The two confirm prefixes are mutually exclusive as well.
         assert_eq!(
             parse_unban_confirm_custom_id(&ban_confirm_custom_id(user, message)),
             None
@@ -916,9 +907,7 @@ mod tests {
 
     #[test]
     fn message_field_value_shown_only_for_non_empty_channel_content() {
-        // Role trigger: never a message.
         assert_eq!(message_field_value(&BanTrigger::Role(RoleId::new(1))), None);
-        // Channel trigger without captured content.
         assert_eq!(
             message_field_value(&BanTrigger::Channel {
                 channel_id: ChannelId::new(1),
@@ -926,7 +915,6 @@ mod tests {
             }),
             None
         );
-        // Channel trigger with empty content is suppressed.
         assert_eq!(
             message_field_value(&BanTrigger::Channel {
                 channel_id: ChannelId::new(1),
@@ -934,7 +922,6 @@ mod tests {
             }),
             None
         );
-        // Channel trigger with real content is formatted.
         assert_eq!(
             message_field_value(&BanTrigger::Channel {
                 channel_id: ChannelId::new(1),
@@ -1049,9 +1036,7 @@ mod tests {
     #[test]
     fn is_new_account_flags_only_recent_creation() {
         let now = ts(1_700_000_000);
-        // Created an hour ago: within the warning window.
         assert!(is_new_account(ts(1_700_000_000 - 3600), now));
-        // Created 30 days ago: outside it.
         assert!(!is_new_account(
             ts(1_700_000_000 - 30 * SECONDS_PER_DAY),
             now
@@ -1060,8 +1045,6 @@ mod tests {
 
     #[test]
     fn created_field_is_pure_timestamp() {
-        // The creation date carries only the timestamp now; the new-account
-        // warning lives in the warnings field instead.
         let recent = user_created_at(1_700_000_000 - 3600);
         assert_eq!(created_field(&recent), timestamp_field(recent.created_at()));
         assert!(!created_field(&recent).contains("New account"));
@@ -1131,7 +1114,6 @@ mod tests {
     #[test]
     fn warnings_field_lists_each_active_signal() {
         let now = ts(1_700_000_000);
-        // New account (default avatar too), flagged as spammer and for DMs.
         let mut user = user_created_at(now.unix_timestamp() - 3600);
         user.public_flags = Some(UserPublicFlags::SPAMMER);
         let context = OffenderContext {
@@ -1140,14 +1122,12 @@ mod tests {
         };
         let field = warnings_field(&user, &context, now, en()).expect("signals present");
 
-        // One line per signal, in declaration order.
         let lines: Vec<&str> = field.lines().collect();
         assert_eq!(lines.len(), 4);
         assert!(lines[0].contains("New account"));
         assert!(lines[1].contains("custom avatar"));
         assert!(lines[2].contains("likely spammer"));
         assert!(lines[3].contains("unusual DM activity"));
-        // Every line is a warning.
         assert!(lines.iter().all(|line| line.contains('⚠')));
     }
 
@@ -1155,8 +1135,6 @@ mod tests {
     fn warnings_field_omits_expired_dm_flag() {
         let now = ts(1_700_000_000);
         let mut user = clean_user(now);
-        // Give it a custom avatar but an expired DM flag and old creation date:
-        // nothing should warn.
         user.public_flags = Some(UserPublicFlags::VERIFIED_BOT);
         let context = OffenderContext {
             joined_at: Some(now),
