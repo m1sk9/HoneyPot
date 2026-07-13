@@ -98,7 +98,6 @@ mod tests {
         "#;
         let config: HoneyPotConfigFile = toml::from_str(toml_str).unwrap();
         assert_eq!(config.guilds.len(), 2);
-        // Optional array fields default to empty when omitted or empty.
         assert!(config.guilds[1].honeypot_channel_ids.is_empty());
     }
 

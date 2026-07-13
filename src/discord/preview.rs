@@ -67,7 +67,6 @@ fn sample_messages(channel_id: ChannelId) -> Vec<CreateMessage> {
         .as_millis() as u64;
     let ts = |ms: u64| Timestamp::from_millis(ms as i64).expect("fabricated timestamp is valid");
 
-    // A brand-new, default-avatar account that Discord has flagged as a spammer.
     let mut offender = User::default();
     offender.id = fabricated_id(now_ms - DAY_MS);
     offender.name = "spammy".to_string();
@@ -87,12 +86,10 @@ fn sample_messages(channel_id: ChannelId) -> Vec<CreateMessage> {
     moderator.discriminator = None;
     moderator.global_name = Some("A Moderator".to_string());
 
-    // Flagged: joined an hour ago and currently flagged for unusual DM activity.
     let flagged = ban::OffenderContext {
         joined_at: Some(ts(now_ms - HOUR_MS)),
         unusual_dm_activity_until: Some(ts(now_ms + HOUR_MS)),
     };
-    // Established: joined a month ago, not flagged.
     let established = ban::OffenderContext {
         joined_at: Some(ts(now_ms - 30 * DAY_MS)),
         unusual_dm_activity_until: None,
@@ -104,8 +101,6 @@ fn sample_messages(channel_id: ChannelId) -> Vec<CreateMessage> {
     };
     let role_trigger = ban::BanTrigger::Role(RoleId::new(1_234_567_890_123_456_789));
 
-    // Post the full set once per supported language, tagging each caption with
-    // the language so both renderings can be compared in the channel.
     let mut messages = Vec::new();
     for language in [Language::En, Language::Ja] {
         let tag = language_tag(language);
