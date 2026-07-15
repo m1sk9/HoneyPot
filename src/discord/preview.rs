@@ -115,7 +115,7 @@ fn sample_messages(channel_id: ChannelId) -> Vec<CreateMessage> {
 
         messages.push(
             captioned(
-                &format!("**[{tag}] Preview 1/5** — user banned (channel trigger)"),
+                &format!("**[{tag}] Preview 1/6** — user banned (channel trigger)"),
                 ban::build_ban_embed(&offender, &channel_trigger, &flagged, language),
             )
             .components(vec![ban::unban_action_row(offender.id, language)]),
@@ -123,7 +123,7 @@ fn sample_messages(channel_id: ChannelId) -> Vec<CreateMessage> {
         messages.push(
             captioned(
                 &format!(
-                    "**[{tag}] Preview 2/5** — user banned (role trigger, established account)"
+                    "**[{tag}] Preview 2/6** — user banned (role trigger, established account)"
                 ),
                 ban::build_ban_embed(&offender, &role_trigger, &established, language),
             )
@@ -131,13 +131,13 @@ fn sample_messages(channel_id: ChannelId) -> Vec<CreateMessage> {
         );
         messages.push(
             captioned(
-                &format!("**[{tag}] Preview 3/5** — untrusted bot notice (awaiting manual review)"),
+                &format!("**[{tag}] Preview 3/6** — untrusted bot notice (awaiting manual review)"),
                 ban::build_pending_embed(&sus_bot, &channel_trigger, &flagged, language),
             )
             .components(vec![ban_notice_button]),
         );
         messages.push(captioned(
-            &format!("**[{tag}] Preview 4/5** — ban lifted (after unban confirmation)"),
+            &format!("**[{tag}] Preview 4/6** — ban lifted (after unban confirmation)"),
             interaction::resolved_embed(
                 Some(as_received(ban::build_ban_embed(
                     &offender,
@@ -152,7 +152,7 @@ fn sample_messages(channel_id: ChannelId) -> Vec<CreateMessage> {
         ));
         messages.push(
             captioned(
-                &format!("**[{tag}] Preview 5/5** — bot banned (after manual confirmation)"),
+                &format!("**[{tag}] Preview 5/6** — bot banned (after manual confirmation)"),
                 interaction::manually_banned_embed(
                     Some(as_received(ban::build_pending_embed(
                         &sus_bot,
@@ -166,6 +166,19 @@ fn sample_messages(channel_id: ChannelId) -> Vec<CreateMessage> {
                 ),
             )
             .components(vec![ban::unban_action_row(sus_bot.id, language)]),
+        );
+        messages.push(
+            captioned(
+                &format!(
+                    "**[{tag}] Preview 6/6** — third-party role grant notice (awaiting manual review)"
+                ),
+                ban::build_third_party_grant_embed(&offender, &role_trigger, &established, language),
+            )
+            .components(vec![CreateActionRow::Buttons(vec![
+                CreateButton::new("preview_ban_noop")
+                    .style(ButtonStyle::Danger)
+                    .label(language.messages().btn_ban),
+            ])]),
         );
     }
     messages

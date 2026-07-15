@@ -38,10 +38,12 @@ Requires a real Discord bot token and a live gateway connection.
 
 The bot needs the **`GUILD_MEMBERS`** and **`MESSAGE_CONTENT`** privileged
 intents (both enabled in the Discord Developer Portal) and the **Ban Members**
-permission in every moderated guild. If either intent is disabled the gateway
-refuses the connection. `MESSAGE_CONTENT` is requested so a channel-triggered
-ban can log the offending message for moderator review; the content is only ever
-read to populate that log embed.
+and **View Audit Log** permissions in every moderated guild. If either intent is
+disabled the gateway refuses the connection. `MESSAGE_CONTENT` is requested so a
+channel-triggered ban can log the offending message for moderator review; the
+content is only ever read to populate that log embed. **View Audit Log** lets the
+role path resolve who granted a honeypot role (see the account-type policy);
+without it every role trigger falls back to manual review.
 
 ### Dry-run mode
 
@@ -64,9 +66,10 @@ no config load, no gateway. The captions are language-tagged (`[EN]`/`[JA]`).
 Run it with `cargo run --features preview`. Lives in `src/discord/preview.rs`;
 `main.rs` selects the preview vs. normal `run()` with `#[cfg(feature = "preview")]`
 (and allows dead code crate-wide under the feature, since the normal path is then
-uncompiled). To reach the previewer, `build_ban_embed`/`build_pending_embed`
-(ban.rs) and `resolved_embed`/`manually_banned_embed` (interaction.rs) are
-`pub(crate)`. None of this is compiled into the production image.
+uncompiled). To reach the previewer, `build_ban_embed`/`build_pending_embed`/
+`build_third_party_grant_embed` (ban.rs) and `resolved_embed`/
+`manually_banned_embed` (interaction.rs) are `pub(crate)`. None of this is
+compiled into the production image.
 
 ## Architecture
 
@@ -99,8 +102,11 @@ handlers → ban module → Discord.
   and `message` detect triggers and funnel through `act_on_trigger`, which routes
   by account type (see below). `interaction_create` dispatches button clicks.
 - **`src/discord/ban.rs`** — shared ban execution and the pure, unit-tested
-  detection predicates (`newly_acquired_honeypot_role`, `is_honeypot_channel`).
-  Builds all log embeds and encodes/parses button `custom_id`s.
+  detection predicates (`newly_acquired_honeypot_role`, `is_honeypot_channel`,
+  `find_role_grant_executor`, `classify_role_grant`). Also owns the audit-log
+  lookup (`resolve_role_grant_source`) that distinguishes a self-assigned role
+  from a third-party grant. Builds all log embeds and encodes/parses button
+  `custom_id`s.
 - **`src/discord/interaction.rs`** — handles the log-embed buttons (`Unban`,
   and `Ban` for manual bot confirmation), gated on the clicker's `BAN_MEMBERS`
   permission. Each button opens a two-step ephemeral confirmation
@@ -119,6 +125,29 @@ When a honeypot fires, `act_on_trigger` branches on the offender:
   to the log channel for manual moderator review (`execute_suspicious_bot_notice`
   → `confirm_bot_ban`). The rationale: bots can only be added by an admin, so
   err on the side of caution.
+
+### Role-grant safeguard (role trigger only)
+
+A **role** trigger has a prior check, applied in `guild_member_update` before
+`act_on_trigger`. The trap is meant for a member who acquires the role
+*themselves* (onboarding / self-assign) — the path a spam bot takes — so the
+handler resolves the grantor via `resolve_role_grant_source` (audit log,
+`MEMBER_ROLE_UPDATE`) and branches on `RoleGrantSource`:
+
+- **`SelfAssigned`** (executor == target) → falls through to `act_on_trigger`
+  (the normal account-type policy above).
+- **`ThirdParty`** (an admin by hand, a reaction-role bot) **or** **`Unknown`**
+  (missing/lagging audit-log entry, or missing `VIEW_AUDIT_LOG`) → *not* fired.
+  A notice with a `Ban` button is posted for manual review
+  (`execute_third_party_grant_notice` → `confirm_bot_ban`).
+
+Discord can't distinguish onboarding from any other self-assign (both record the
+member as executor), and both are intended to fire — so the axis is
+self-assign vs. third-party, not onboarding vs. manual. `Unknown` deliberately
+holds for review (never auto-bans) so an unverifiable grant can't cause a false
+ban. The channel trigger has no such check: posting is always the offender's own
+act. The two review notices share `build_review_embed`/`build_review_message` and
+the same `uhp_ban` confirmation flow; only their title/description differ.
 
 ### Two invariants worth knowing
 

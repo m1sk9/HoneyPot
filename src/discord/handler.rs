@@ -123,15 +123,56 @@ impl EventHandler for HoneyPotEventHandler {
             joined_at: Some(event.joined_at),
             unusual_dm_activity_until: event.unusual_dm_activity_until,
         };
-        act_on_trigger(
-            &ctx,
-            event.guild_id,
-            guild,
-            &user,
-            BanTrigger::Role(role),
-            &offender,
-        )
-        .await;
+
+        // A honeypot role only marks an offender when the member self-assigned it
+        // (onboarding / self-serve) — the trap's intended path. A third-party
+        // grant (an admin by hand, a reaction-role bot) or an unresolvable grantor
+        // is held for manual review instead of auto-banned, so a mistaken grant
+        // can't cause a false ban. Only the role trigger needs this: a channel
+        // post is always the offender's own act.
+        match ban::resolve_role_grant_source(&ctx, event.guild_id, user.id, role).await {
+            ban::RoleGrantSource::SelfAssigned => {
+                act_on_trigger(
+                    &ctx,
+                    event.guild_id,
+                    guild,
+                    &user,
+                    BanTrigger::Role(role),
+                    &offender,
+                )
+                .await;
+            }
+            ban::RoleGrantSource::ThirdParty | ban::RoleGrantSource::Unknown => {
+                // A trusted bot stays exempt even when a third party grants it a
+                // honeypot role — an admin assigning a bot's role is the usual way
+                // a bot acquires one, so without this the allowlist would be lost
+                // on every non-self-assign path (mirrors act_on_trigger).
+                if user.bot && guild.trusted_bot_ids.contains(&user.id) {
+                    tracing::debug!(
+                        user_id = %user.id,
+                        "ignoring trusted bot granted a honeypot role by a third party"
+                    );
+                    return;
+                }
+                if let Err(error) = ban::execute_third_party_grant_notice(
+                    &ctx,
+                    event.guild_id,
+                    guild.log_channel_id,
+                    &user,
+                    BanTrigger::Role(role),
+                    &offender,
+                    guild.language,
+                )
+                .await
+                {
+                    tracing::error!(
+                        %error,
+                        user_id = %user.id,
+                        "failed to post third-party role grant notice"
+                    );
+                }
+            }
+        }
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
