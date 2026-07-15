@@ -19,8 +19,12 @@ use serenity::all::{
     CreateEmbedFooter, CreateMessage, GuildId, Mentionable, MessageId, RoleId, Timestamp, User,
     UserId, UserPublicFlags,
 };
+// Referenced by explicit path, not via `serenity::all`: the audit-log `Action`
+// collides there with `automod::Action`, and glob-importing both is ambiguous.
+use serenity::model::guild::audit_log::{Action, AuditLogEntry, Change, MemberAction};
 use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};
+use std::time::Duration;
 
 /// `(guild, user)` pairs already banned by a honeypot trigger.
 ///
@@ -272,6 +276,129 @@ pub fn is_honeypot_channel(honeypot_channel_ids: &[ChannelId], channel_id: Chann
     honeypot_channel_ids.contains(&channel_id)
 }
 
+/// How many recent `MEMBER_ROLE_UPDATE` audit-log entries to scan when resolving
+/// who granted a honeypot role. Grants are rare, so a modest window is plenty
+/// even when several members' roles change around the same time.
+const AUDIT_LOG_SCAN_LIMIT: u8 = 50;
+
+/// How many times to poll the audit log before giving up. The entry can lag the
+/// gateway event, so a self-assign (which should fire) isn't misread as unknown.
+const AUDIT_LOG_LOOKUP_ATTEMPTS: usize = 3;
+
+/// Delay between audit-log poll attempts.
+const AUDIT_LOG_RETRY_DELAY: Duration = Duration::from_millis(400);
+
+/// Who granted a honeypot role, as far as the audit log can tell.
+///
+/// Only a self-assign fires the trap; every other outcome is held for manual
+/// review, erring against a false ban when the grantor can't be trusted.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RoleGrantSource {
+    /// The member granted the role to themselves — onboarding or a self-assign
+    /// menu. This is the trap's intended trigger, so it fires.
+    SelfAssigned,
+    /// A third party granted it: an admin by hand, or a reaction-role bot. Not
+    /// the member's own doing, so it's held for review rather than auto-banned.
+    ThirdParty,
+    /// The grantor couldn't be determined — a missing or lagging audit-log entry,
+    /// or a missing `VIEW_AUDIT_LOG` permission. Held for review so an unverifiable
+    /// grant never triggers an automatic ban.
+    Unknown,
+}
+
+/// Classifies a role grant from its resolved executor relative to the `target`.
+///
+/// `Some(target)` is a self-assign; any other executor is a third party; `None`
+/// (executor unresolved) is unknown.
+pub fn classify_role_grant(executor: Option<UserId>, target: UserId) -> RoleGrantSource {
+    match executor {
+        Some(id) if id == target => RoleGrantSource::SelfAssigned,
+        Some(_) => RoleGrantSource::ThirdParty,
+        None => RoleGrantSource::Unknown,
+    }
+}
+
+/// Whether `entry` records `role` being *added* (a `$add` change containing it).
+fn entry_added_role(entry: &AuditLogEntry, role: RoleId) -> bool {
+    entry.changes.iter().flatten().any(|change| match change {
+        Change::RolesAdded {
+            new: Some(roles), ..
+        } => roles.iter().any(|added| added.id == role),
+        _ => false,
+    })
+}
+
+/// Finds who added `role` to `target` among audit-log entries.
+///
+/// `entries` are Discord's `MEMBER_ROLE_UPDATE` entries, newest first; returns
+/// the executor (`user_id`) of the most recent entry that added `role` to
+/// `target`, or `None` if no such entry is present.
+pub fn find_role_grant_executor(
+    entries: &[AuditLogEntry],
+    target: UserId,
+    role: RoleId,
+) -> Option<UserId> {
+    entries
+        .iter()
+        .find(|entry| {
+            entry.target_id.map(|id| id.get()) == Some(target.get())
+                && entry_added_role(entry, role)
+        })
+        .map(|entry| entry.user_id)
+}
+
+/// Resolves who granted `role` to `target` by consulting the guild audit log.
+///
+/// The `MEMBER_ROLE_UPDATE` entry can lag the gateway event, so the lookup is
+/// retried a few times before giving up. Returns [`RoleGrantSource::Unknown`]
+/// when the executor can't be determined — a missing/lagging entry, or a missing
+/// `VIEW_AUDIT_LOG` permission (which surfaces as an HTTP error and is not
+/// retried, since retrying can't grant the permission).
+pub async fn resolve_role_grant_source(
+    ctx: &Context,
+    guild_id: GuildId,
+    target: UserId,
+    role: RoleId,
+) -> RoleGrantSource {
+    for attempt in 0..AUDIT_LOG_LOOKUP_ATTEMPTS {
+        if attempt > 0 {
+            tokio::time::sleep(AUDIT_LOG_RETRY_DELAY).await;
+        }
+        match guild_id
+            .audit_logs(
+                &ctx.http,
+                Some(Action::Member(MemberAction::RoleUpdate)),
+                None,
+                None,
+                Some(AUDIT_LOG_SCAN_LIMIT),
+            )
+            .await
+        {
+            Ok(logs) => {
+                if let Some(executor) = find_role_grant_executor(&logs.entries, target, role) {
+                    return classify_role_grant(Some(executor), target);
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    guild_id = %guild_id,
+                    user_id = %target,
+                    "failed to read audit log for role grant; holding for manual review"
+                );
+                return RoleGrantSource::Unknown;
+            }
+        }
+    }
+
+    tracing::warn!(
+        guild_id = %guild_id,
+        user_id = %target,
+        "no audit-log entry found for honeypot role grant; holding for manual review"
+    );
+    RoleGrantSource::Unknown
+}
+
 /// Guild-membership details about an offender, captured at trigger time and
 /// shown in the log embed as moderator decision aids.
 ///
@@ -514,11 +641,15 @@ fn build_ban_message(
         .components(vec![unban_action_row(target.id, language)])
 }
 
-/// Builds the "untrusted bot" notice embed.
+/// Builds a GOLD "awaiting manual review" embed with the given `title` and
+/// `desc_body`, plus the shared User / Trigger / Account and offender fields.
 ///
-/// Unlike [`build_ban_embed`], no ban has happened yet: the bot tripped a
-/// honeypot but is not in the guild's trusted list, so a moderator must decide.
-pub(crate) fn build_pending_embed(
+/// Backs both review notices — the untrusted-bot notice and the third-party role
+/// grant notice — which differ only in wording; sharing one builder keeps the two
+/// from drifting apart.
+fn build_review_embed(
+    title: &'static str,
+    desc_body: &'static str,
     target: &User,
     trigger: &BanTrigger,
     offender: &OffenderContext,
@@ -526,11 +657,11 @@ pub(crate) fn build_pending_embed(
 ) -> CreateEmbed {
     let msg = language.messages();
     let description = match message_field_value(trigger) {
-        Some(body) => format!("{}\n\n{}", msg.pending_desc, body),
-        None => msg.pending_desc.to_string(),
+        Some(body) => format!("{desc_body}\n\n{body}"),
+        None => desc_body.to_string(),
     };
     let embed = CreateEmbed::new()
-        .title(msg.pending_title)
+        .title(title)
         .description(description)
         .color(Colour::GOLD)
         .field(msg.field_user, target_field(target, msg), false)
@@ -545,20 +676,64 @@ pub(crate) fn build_pending_embed(
     apply_dry_run_marker(embed, msg)
 }
 
-/// Builds the untrusted-bot notice message: the pending embed plus a `Ban` button.
-fn build_pending_message(
+/// Builds the "untrusted bot" notice embed.
+///
+/// Unlike [`build_ban_embed`], no ban has happened yet: the bot tripped a
+/// honeypot but is not in the guild's trusted list, so a moderator must decide.
+pub(crate) fn build_pending_embed(
     target: &User,
     trigger: &BanTrigger,
     offender: &OffenderContext,
     language: Language,
+) -> CreateEmbed {
+    let msg = language.messages();
+    build_review_embed(
+        msg.pending_title,
+        msg.pending_desc,
+        target,
+        trigger,
+        offender,
+        language,
+    )
+}
+
+/// Builds the "third-party role grant" notice embed.
+///
+/// A honeypot role was granted by someone other than the member (an admin, a
+/// reaction-role bot) or by an unresolved grantor, so the trap was not fired and
+/// no ban applied; a moderator decides via the `Ban` button.
+pub(crate) fn build_third_party_grant_embed(
+    target: &User,
+    trigger: &BanTrigger,
+    offender: &OffenderContext,
+    language: Language,
+) -> CreateEmbed {
+    let msg = language.messages();
+    build_review_embed(
+        msg.manual_grant_title,
+        msg.manual_grant_desc,
+        target,
+        trigger,
+        offender,
+        language,
+    )
+}
+
+/// Builds a review-notice message: the given embed plus a `Ban` button.
+///
+/// Shared by the untrusted-bot and third-party-grant notices; the `Ban` button
+/// funnels into the same manual-confirmation flow ([`confirm_bot_ban`]).
+fn build_review_message(
+    embed: CreateEmbed,
+    target_id: UserId,
+    language: Language,
 ) -> CreateMessage {
-    let button = CreateButton::new(ban_custom_id(target.id))
+    let button = CreateButton::new(ban_custom_id(target_id))
         .style(ButtonStyle::Danger)
         .label(language.messages().btn_ban);
-    let row = CreateActionRow::Buttons(vec![button]);
     CreateMessage::new()
-        .embed(build_pending_embed(target, trigger, offender, language))
-        .components(vec![row])
+        .embed(embed)
+        .components(vec![CreateActionRow::Buttons(vec![button])])
 }
 
 /// Bans `target` from `guild_id` and posts a log embed to `log_channel_id`.
@@ -661,7 +836,65 @@ pub async fn execute_suspicious_bot_notice(
     if let Err(error) = log_channel_id
         .send_message(
             &ctx.http,
-            build_pending_message(target, &trigger, offender, language),
+            build_review_message(
+                build_pending_embed(target, &trigger, offender, language),
+                target.id,
+                language,
+            ),
+        )
+        .await
+    {
+        forget_ban(guild_id, target.id);
+        return Err(error.into());
+    }
+
+    Ok(())
+}
+
+/// Posts a "third-party role grant" review notice to `log_channel_id` without
+/// banning.
+///
+/// Used when a honeypot *role* was granted by someone other than the member (an
+/// admin by hand, a reaction-role bot) or by a grantor the audit log couldn't
+/// resolve: rather than auto-banning — which would misfire on a mistaken manual
+/// grant — the decision is deferred to a moderator via the `Ban` button (handled
+/// by [`confirm_bot_ban`]).
+///
+/// Shares [`HANDLED_BANS`] with [`execute_ban`] to dedupe, mirroring
+/// [`execute_suspicious_bot_notice`]: a member claimed here is not notified again
+/// on repeat triggers, and a failed post releases the claim so a later trigger
+/// can retry.
+pub async fn execute_third_party_grant_notice(
+    ctx: &Context,
+    guild_id: GuildId,
+    log_channel_id: ChannelId,
+    target: &User,
+    trigger: BanTrigger,
+    offender: &OffenderContext,
+    language: Language,
+) -> Result<(), HoneyPotError> {
+    if !claim_ban(guild_id, target.id) {
+        tracing::debug!(
+            user_id = %target.id,
+            "skipping duplicate third-party-grant notice for already-handled user"
+        );
+        return Ok(());
+    }
+
+    tracing::warn!(
+        guild_id = %guild_id,
+        user_id = %target.id,
+        "honeypot role granted by a third party or unknown grantor; awaiting manual review"
+    );
+
+    if let Err(error) = log_channel_id
+        .send_message(
+            &ctx.http,
+            build_review_message(
+                build_third_party_grant_embed(target, &trigger, offender, language),
+                target.id,
+                language,
+            ),
         )
         .await
     {
@@ -771,6 +1004,81 @@ mod tests {
         assert!(is_honeypot_channel(&honeypot, ChannelId::new(100)));
         assert!(!is_honeypot_channel(&honeypot, ChannelId::new(300)));
         assert!(!is_honeypot_channel(&[], ChannelId::new(100)));
+    }
+
+    #[test]
+    fn classify_role_grant_distinguishes_self_third_party_and_unknown() {
+        let target = UserId::new(100);
+        assert_eq!(
+            classify_role_grant(Some(target), target),
+            RoleGrantSource::SelfAssigned
+        );
+        assert_eq!(
+            classify_role_grant(Some(UserId::new(200)), target),
+            RoleGrantSource::ThirdParty
+        );
+        assert_eq!(classify_role_grant(None, target), RoleGrantSource::Unknown);
+    }
+
+    /// Deserializes `MEMBER_ROLE_UPDATE` entries from Discord's JSON shape, since
+    /// [`AuditLogEntry`] is `#[non_exhaustive]` and can't be built by literal.
+    fn audit_entries(json: &str) -> Vec<AuditLogEntry> {
+        serenity::json::from_str(json).expect("audit-log entries deserialize")
+    }
+
+    /// One `$add` entry: `executor` added `role` to `target`, entry id `entry_id`.
+    fn role_add_entry(entry_id: u64, target: u64, executor: u64, role: u64) -> String {
+        format!(
+            r#"{{"target_id":"{target}","action_type":25,"reason":null,"user_id":"{executor}","changes":[{{"key":"$add","new_value":[{{"id":"{role}","name":"Honeypot"}}]}}],"id":"{entry_id}","options":null}}"#
+        )
+    }
+
+    #[test]
+    fn find_role_grant_executor_returns_matching_grantor() {
+        let entries = audit_entries(&format!("[{}]", role_add_entry(1, 100, 200, 10)));
+        assert_eq!(
+            find_role_grant_executor(&entries, UserId::new(100), RoleId::new(10)),
+            Some(UserId::new(200))
+        );
+    }
+
+    #[test]
+    fn find_role_grant_executor_prefers_the_newest_entry() {
+        // Entries arrive newest-first; the first matching entry wins.
+        let entries = audit_entries(&format!(
+            "[{},{}]",
+            role_add_entry(2, 100, 999, 10),
+            role_add_entry(1, 100, 200, 10),
+        ));
+        assert_eq!(
+            find_role_grant_executor(&entries, UserId::new(100), RoleId::new(10)),
+            Some(UserId::new(999))
+        );
+    }
+
+    #[test]
+    fn find_role_grant_executor_ignores_other_targets_and_roles() {
+        let entries = audit_entries(&format!(
+            "[{},{}]",
+            role_add_entry(1, 555, 200, 10),
+            role_add_entry(2, 100, 200, 77),
+        ));
+        assert_eq!(
+            find_role_grant_executor(&entries, UserId::new(100), RoleId::new(10)),
+            None
+        );
+    }
+
+    #[test]
+    fn find_role_grant_executor_ignores_role_removals() {
+        // A `$remove` of the honeypot role is not a grant.
+        let entries = audit_entries(
+            r#"[{"target_id":"100","action_type":25,"reason":null,"user_id":"200","changes":[{"key":"$remove","new_value":[{"id":"10","name":"Honeypot"}]}],"id":"1","options":null}]"#,
+        );
+        assert_eq!(
+            find_role_grant_executor(&entries, UserId::new(100), RoleId::new(10)),
+            None
+        );
     }
 
     #[test]

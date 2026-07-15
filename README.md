@@ -32,6 +32,11 @@ docker pull ghcr.io/m1sk9/honeypot:v0.1.0
   immediately, but bots are treated cautiously (they can only be added by an
   admin): a bot on the `trusted_bot_ids` allowlist is ignored, and any other bot
   is posted for **manual moderator review** rather than auto-banned.
+- **Self-assign–aware role traps.** A role trap only fires when the member grants
+  the role themselves (onboarding / self-assign) — the path a spam bot takes. A
+  role granted by someone else (an admin, a reaction-role bot) or by an
+  unverifiable grantor is held for **manual moderator review** instead, so a
+  mistaken grant never triggers a false ban.
 - **Rich, actionable log embeds.** Every action posts an embed to your log
   channel with the signals a moderator needs to judge it — account age (with a
   new-account warning), join date, default-vs-custom avatar, Discord's own spam
@@ -106,7 +111,10 @@ ID**. You will need:
 > **Privileged Gateway Intents**, and save — this is also where you copy the bot
 > token for `HONEYPOT_BOT_TOKEN`. If either intent is left disabled the gateway
 > refuses the connection and the bot will not start. The bot also needs the
-> **Ban Members** permission in every guild it moderates.
+> **Ban Members** and **View Audit Log** permissions in every guild it moderates.
+> **View Audit Log** lets HoneyPot check who granted a honeypot role: without it,
+> every role trigger is held for manual review instead of acting automatically
+> (see below).
 
 Create `config/config.toml` from [`config/config.example.toml`](./config/config.example.toml)
 and fill in the IDs from the previous step. See [Configuration](#configuration)
@@ -148,6 +156,17 @@ a bot listed in `trusted_bot_ids` is ignored, and any other bot is posted to the
 log channel with a **Ban** button for manual review instead of being
 auto-banned. This keeps well-behaved bots — for example a link expander that
 echoes a message into a honeypot channel — from being caught.
+
+A **role** trigger has one extra safeguard. The trap is meant for a member who
+acquires the role themselves — through Discord onboarding or a self-assign menu —
+which is how a spam bot mechanically grabbing roles is caught. So HoneyPot checks
+the audit log for who granted the role: only a **self-assign** fires the trap. If
+the role was granted by someone else — an admin by hand, a reaction-role bot — or
+by a grantor the audit log can't confirm (for example a missing **View Audit
+Log** permission), the trap is **not** fired; instead the member is posted to the
+log channel with a **Ban** button for manual review, so a mistaken grant never
+causes an automatic ban. A **channel** trigger has no such check — posting is
+always the offender's own act.
 
 By default the configuration is read from `config/config.toml` (relative to the
 working directory). Override the path with the `HONEYPOT_CONFIG_PATH`

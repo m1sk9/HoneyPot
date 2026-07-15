@@ -63,6 +63,10 @@ pub struct Messages {
     pub bot_banned_title: &'static str,
     /// Description of the embed after a bot is manually banned.
     pub bot_banned_desc: &'static str,
+    /// Title of the third-party role grant review notice embed.
+    pub manual_grant_title: &'static str,
+    /// Description of the third-party role grant review notice embed.
+    pub manual_grant_desc: &'static str,
 
     /// "User" field name.
     pub field_user: &'static str,
@@ -155,6 +159,8 @@ pub const EN: Messages = Messages {
     lifted_title: "🍯 Ban lifted",
     bot_banned_title: "🍯 Honeypot triggered — bot banned",
     bot_banned_desc: "Banned after manual review.",
+    manual_grant_title: "🍯 Honeypot role granted by a third party",
+    manual_grant_desc: "This honeypot role was not self-assigned — it was granted by someone else (an admin, a reaction role) or by an unresolved source, so the trap was not triggered and no ban was applied.\nReview and press **Ban** if this is spam.",
 
     field_user: "User",
     field_trigger: "Trigger",
@@ -189,12 +195,12 @@ pub const EN: Messages = Messages {
     perm_needed_unban: "You need the Ban Members permission to unban.",
     perm_needed_ban: "You need the Ban Members permission to ban.",
     confirm_unban_prompt: "Unban {}?",
-    confirm_ban_prompt: "Ban {}? Unlike a normal member ban, this bot will be disconnected.",
+    confirm_ban_prompt: "Ban {}?",
     unbanned_ack: "Unbanned {}.",
     banned_ack: "Banned {}.",
     cancelled: "Cancelled.",
     unban_failed: "Failed to unban the user. Please try again.",
-    ban_failed: "Failed to ban the bot. Please try again.",
+    ban_failed: "Failed to ban the user. Please try again.",
 
     dry_run_footer: "⚠️ DRY-RUN — no ban/unban was executed",
 };
@@ -207,6 +213,8 @@ pub const JA: Messages = Messages {
     lifted_title: "🍯 BAN を解除しました",
     bot_banned_title: "🍯 Honeypot 作動 — Bot を BAN しました",
     bot_banned_desc: "手動レビューの結果 BAN しました",
+    manual_grant_title: "🍯 Honeypot ロールが第三者により付与",
+    manual_grant_desc: "この Honeypot ロールは本人による付与ではなく、第三者（管理者・リアクションロール）または不明な経路で付与されたため、トリガーは発動せず BAN も行っていません。\nスパムであれば内容を確認して **BAN** を押してください。",
 
     field_user: "ユーザー",
     field_trigger: "トリガー",
@@ -241,12 +249,12 @@ pub const JA: Messages = Messages {
     perm_needed_unban: "BAN 解除には Ban Members 権限が必要です。",
     perm_needed_ban: "BAN には Ban Members 権限が必要です。",
     confirm_unban_prompt: "{} の BAN を解除しますか？",
-    confirm_ban_prompt: "{} を BAN しますか？ Bot は通常の BAN 操作とは異なり、この Bot は切断されます。",
+    confirm_ban_prompt: "{} を BAN しますか？",
     unbanned_ack: "{} の BAN を解除しました。",
     banned_ack: "{} を BAN しました。",
     cancelled: "キャンセルしました。",
     unban_failed: "BAN 解除に失敗しました。もう一度お試しください。",
-    ban_failed: "Bot の BAN に失敗しました。もう一度お試しください。",
+    ban_failed: "BAN に失敗しました。もう一度お試しください。",
 
     dry_run_footer: "⚠️ DRY-RUN — BAN／BAN 解除は実行されていません",
 };
