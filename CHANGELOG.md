@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.3.0...honeypot-v0.4.0) (2026-07-15)
+
+
+### Features
+
+* fire role trigger only on self-assigned honeypot roles ([#25](https://github.com/m1sk9/HoneyPot/issues/25)) ([ce75ed3](https://github.com/m1sk9/HoneyPot/commit/ce75ed34b94ad6bfa9a4ed9086ff60d09967dcd4))
+
+
+### Miscellaneous
+
+* **deps:** update rust crate toml to v1.1.3 ([#27](https://github.com/m1sk9/HoneyPot/issues/27)) ([59f3c81](https://github.com/m1sk9/HoneyPot/commit/59f3c81b26729edbae4396712aa747169434b593))
+
 ## [0.3.0](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.2.0...honeypot-v0.3.0) (2026-07-07)
 
 
