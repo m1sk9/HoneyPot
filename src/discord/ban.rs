@@ -56,6 +56,34 @@ pub fn forget_ban(guild_id: GuildId, user_id: UserId) {
         .remove(&(guild_id, user_id));
 }
 
+/// `(guild, user)` pairs already posted as a third-party role-grant review notice.
+///
+/// Deliberately separate from [`HANDLED_BANS`]: a third-party grant usually lands
+/// on a *legitimate* member (a mistaken admin grant), so its notice must dedupe
+/// repeat `guild_member_update`s **without** marking the member as handled. Were
+/// it to reuse `HANDLED_BANS`, a later genuine trigger — a honeypot channel post,
+/// a self-assign — would be silently suppressed by the lingering claim. Released
+/// by [`forget_grant_notice`] when the member is unbanned.
+static NOTIFIED_GRANTS: LazyLock<Mutex<HashSet<(GuildId, UserId)>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// Claims a third-party grant notice, returning `true` only on the first claim
+/// so repeat triggers don't post duplicate notices.
+fn claim_grant_notice(guild_id: GuildId, user_id: UserId) -> bool {
+    NOTIFIED_GRANTS
+        .lock()
+        .expect("NOTIFIED_GRANTS mutex poisoned")
+        .insert((guild_id, user_id))
+}
+
+/// Releases a third-party grant notice claim so a future grant can notify again.
+pub fn forget_grant_notice(guild_id: GuildId, user_id: UserId) {
+    NOTIFIED_GRANTS
+        .lock()
+        .expect("NOTIFIED_GRANTS mutex poisoned")
+        .remove(&(guild_id, user_id));
+}
+
 /// Prefix for the unban button `custom_id`. The full id is `uhp_unban:{user_id}`;
 /// the button handler parses the suffix as a [`UserId`]. Clicking it does not
 /// unban yet — it opens an ephemeral confirmation (see [`UNBAN_CONFIRM_CUSTOM_ID_PREFIX`]).
@@ -860,10 +888,10 @@ pub async fn execute_suspicious_bot_notice(
 /// grant — the decision is deferred to a moderator via the `Ban` button (handled
 /// by [`confirm_bot_ban`]).
 ///
-/// Shares [`HANDLED_BANS`] with [`execute_ban`] to dedupe, mirroring
-/// [`execute_suspicious_bot_notice`]: a member claimed here is not notified again
-/// on repeat triggers, and a failed post releases the claim so a later trigger
-/// can retry.
+/// Dedupes on [`NOTIFIED_GRANTS`] — not [`HANDLED_BANS`] — so repeat triggers
+/// don't post duplicate notices, while leaving the (usually legitimate) member
+/// free to be caught by a later genuine trigger. A failed post releases the claim
+/// so a later trigger can retry.
 pub async fn execute_third_party_grant_notice(
     ctx: &Context,
     guild_id: GuildId,
@@ -873,10 +901,10 @@ pub async fn execute_third_party_grant_notice(
     offender: &OffenderContext,
     language: Language,
 ) -> Result<(), HoneyPotError> {
-    if !claim_ban(guild_id, target.id) {
+    if !claim_grant_notice(guild_id, target.id) {
         tracing::debug!(
             user_id = %target.id,
-            "skipping duplicate third-party-grant notice for already-handled user"
+            "skipping duplicate third-party-grant notice for already-notified user"
         );
         return Ok(());
     }
@@ -898,20 +926,23 @@ pub async fn execute_third_party_grant_notice(
         )
         .await
     {
-        forget_ban(guild_id, target.id);
+        forget_grant_notice(guild_id, target.id);
         return Err(error.into());
     }
 
     Ok(())
 }
 
-/// Bans `user_id` from `guild_id` after a moderator confirms an untrusted-bot
-/// notice, deleting [`DELETE_MESSAGE_DAYS`] of messages.
+/// Bans `user_id` from `guild_id` after a moderator confirms a review notice,
+/// deleting [`DELETE_MESSAGE_DAYS`] of messages.
 ///
-/// The `(guild, user)` pair is already claimed by [`execute_suspicious_bot_notice`];
-/// the claim is left in place so repeat triggers stay suppressed until an unban
-/// releases it. Unlike [`execute_ban`], this does not post a new log message —
-/// the interaction handler edits the existing notice in place.
+/// Claims `(guild, user)` in [`HANDLED_BANS`] so the banned member isn't
+/// re-processed and a later unban ([`forget_ban`]) can release it. This is what
+/// records the ban for the third-party-grant path, which deduped on
+/// [`NOTIFIED_GRANTS`] and never touched `HANDLED_BANS`; the untrusted-bot path
+/// already claimed the pair, so the claim here is idempotent. Unlike
+/// [`execute_ban`], this does not post a new log message — the interaction
+/// handler edits the existing notice in place.
 pub async fn confirm_bot_ban(
     ctx: &Context,
     guild_id: GuildId,
@@ -930,10 +961,12 @@ pub async fn confirm_bot_ban(
             .await?;
     }
 
+    claim_ban(guild_id, user_id);
+
     tracing::info!(
         guild_id = %guild_id,
         user_id = %user_id,
-        "banned bot after manual confirmation"
+        "banned member after manual confirmation"
     );
 
     Ok(())
@@ -1288,6 +1321,35 @@ mod tests {
         assert!(claim_ban(guild, user), "claim allowed again after forget");
 
         forget_ban(guild, user);
+    }
+
+    #[test]
+    fn grant_notice_claim_is_independent_of_ban_claim() {
+        // Unique ids keep this test independent of the shared global sets.
+        let guild = GuildId::new(9_000_000_000_000_101);
+        let user = UserId::new(9_000_000_000_000_102);
+
+        // A posted grant notice dedupes itself on repeat triggers...
+        assert!(claim_grant_notice(guild, user), "first notice should post");
+        assert!(
+            !claim_grant_notice(guild, user),
+            "duplicate notice should be skipped"
+        );
+
+        // ...but must NOT mark the member as handled, so a later genuine trigger
+        // can still ban them.
+        assert!(
+            claim_ban(guild, user),
+            "grant notice must not suppress a later ban"
+        );
+
+        forget_ban(guild, user);
+        forget_grant_notice(guild, user);
+        assert!(
+            claim_grant_notice(guild, user),
+            "notice allowed again after forget"
+        );
+        forget_grant_notice(guild, user);
     }
 
     #[test]

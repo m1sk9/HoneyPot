@@ -158,6 +158,9 @@ async fn perform_unban(
     }
 
     ban::forget_ban(guild_id, target_id);
+    // Also clear any third-party grant-notice claim, so a future grant to this
+    // member can post a fresh notice.
+    ban::forget_grant_notice(guild_id, target_id);
 
     tracing::info!(
         guild_id = %guild_id,

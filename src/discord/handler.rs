@@ -143,6 +143,17 @@ impl EventHandler for HoneyPotEventHandler {
                 .await;
             }
             ban::RoleGrantSource::ThirdParty | ban::RoleGrantSource::Unknown => {
+                // A trusted bot stays exempt even when a third party grants it a
+                // honeypot role — an admin assigning a bot's role is the usual way
+                // a bot acquires one, so without this the allowlist would be lost
+                // on every non-self-assign path (mirrors act_on_trigger).
+                if user.bot && guild.trusted_bot_ids.contains(&user.id) {
+                    tracing::debug!(
+                        user_id = %user.id,
+                        "ignoring trusted bot granted a honeypot role by a third party"
+                    );
+                    return;
+                }
                 if let Err(error) = ban::execute_third_party_grant_notice(
                     &ctx,
                     event.guild_id,
