@@ -26,6 +26,45 @@ const DRY_RUN_ENV: &str = "HONEYPOT_DRY_RUN";
 /// Cached dry-run flag, read once from the environment.
 static DRY_RUN: OnceLock<bool> = OnceLock::new();
 
+/// Environment variable that selects the slash-command registration scope.
+const COMMAND_SCOPE_ENV: &str = "HONEYPOT_COMMAND_SCOPE";
+
+/// Cached command scope, read once from the environment.
+static COMMAND_SCOPE: OnceLock<CommandScope> = OnceLock::new();
+
+/// Where slash commands are registered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandScope {
+    /// Registered once for every guild in the configuration. Propagates
+    /// instantly, so it is convenient during development.
+    Guild,
+    /// Registered globally across every guild the bot is in. Discord can take up
+    /// to an hour to propagate these, so it is the production default.
+    Global,
+}
+
+/// Parses a command-scope env value: `guild` (case-insensitive, trimmed) selects
+/// per-guild registration; anything else selects global.
+fn parse_command_scope(value: &str) -> CommandScope {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "guild" => CommandScope::Guild,
+        _ => CommandScope::Global,
+    }
+}
+
+/// The slash-command registration scope.
+///
+/// Reads [`COMMAND_SCOPE_ENV`] once and caches it. `guild` selects per-guild
+/// registration (instant, for development); anything else — including the unset
+/// default — selects global registration.
+pub fn command_scope() -> CommandScope {
+    *COMMAND_SCOPE.get_or_init(|| {
+        std::env::var(COMMAND_SCOPE_ENV)
+            .map(|value| parse_command_scope(&value))
+            .unwrap_or(CommandScope::Global)
+    })
+}
+
 /// Parses a dry-run env value: enabled on `1`/`true` (case-insensitive, trimmed).
 fn parse_dry_run(value: &str) -> bool {
     matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true")
@@ -126,6 +165,11 @@ impl HoneyPotConfig {
     pub fn guild(&self, guild_id: GuildId) -> Option<&GuildConfig> {
         self.guilds.get(&guild_id)
     }
+
+    /// Returns every configured guild's ID, for per-guild command registration.
+    pub fn guild_ids(&self) -> impl Iterator<Item = GuildId> + '_ {
+        self.guilds.keys().copied()
+    }
 }
 
 #[cfg(test)]
@@ -186,6 +230,20 @@ mod tests {
                 !parse_dry_run(value),
                 "expected {value:?} to leave dry-run disabled"
             );
+        }
+    }
+
+    #[test]
+    fn parse_command_scope_selects_guild_only_for_guild_value() {
+        for value in ["guild", "GUILD", " guild ", "Guild"] {
+            assert_eq!(parse_command_scope(value), CommandScope::Guild);
+        }
+    }
+
+    #[test]
+    fn parse_command_scope_defaults_to_global() {
+        for value in ["global", "", "prod", "GLOBAL", "gild"] {
+            assert_eq!(parse_command_scope(value), CommandScope::Global);
         }
     }
 }

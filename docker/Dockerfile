@@ -10,6 +10,11 @@ COPY --from=planner /root/app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
 FROM cook AS builder
+# The commit hash is injected here (not read from git) because the build context
+# has no .git and the image has no git binary; build.rs reads this env var and
+# bakes it into the binary for the `/version` command.
+ARG HONEYPOT_BUILD_SHA=unknown
+ENV HONEYPOT_BUILD_SHA=$HONEYPOT_BUILD_SHA
 COPY . .
 RUN cargo build --release --bin honeypot
 

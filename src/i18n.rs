@@ -149,6 +149,86 @@ pub struct Messages {
 
     /// Footer marking a dry-run embed.
     pub dry_run_footer: &'static str,
+
+    // Slash-command descriptions, shown in the Discord command picker. Also used
+    // as the `ja` command-description localization at registration.
+    /// `/help` command description.
+    pub cmd_help_desc: &'static str,
+    /// `/version` command description.
+    pub cmd_version_desc: &'static str,
+    /// `/ping` command description.
+    pub cmd_ping_desc: &'static str,
+    /// `/whois` command description.
+    pub cmd_whois_desc: &'static str,
+    /// `/whois` `user` option description.
+    pub cmd_whois_user_desc: &'static str,
+    /// `/doctor` command description.
+    pub cmd_doctor_desc: &'static str,
+
+    /// Rejection shown when a command caller lacks Ban Members.
+    pub cmd_perm_needed: &'static str,
+    /// Rejection shown when a command caller lacks Manage Server.
+    pub cmd_perm_needed_manage: &'static str,
+    /// Rejection shown when a guild-only command is used outside a guild.
+    pub cmd_guild_only: &'static str,
+
+    /// `/help` embed title.
+    pub help_title: &'static str,
+
+    /// `/version` embed title.
+    pub version_title: &'static str,
+    /// "Version" field name.
+    pub version_label: &'static str,
+    /// "Build" field name (holds the commit hash).
+    pub build_label: &'static str,
+
+    /// `/ping` embed title.
+    pub ping_title: &'static str,
+    /// Latency line; `{}` is the round-trip time in milliseconds.
+    pub pong: &'static str,
+
+    /// `/whois` embed title.
+    pub whois_title: &'static str,
+    /// "Badges" field name.
+    pub field_badges: &'static str,
+    /// "Badges" value shown when the account carries none.
+    pub badges_none: &'static str,
+
+    /// `/doctor` embed title.
+    pub doctor_title: &'static str,
+    /// Shown when `/doctor` runs in a guild absent from the configuration.
+    pub doctor_not_configured: &'static str,
+    /// Ban-permission check, passing.
+    pub ban_perm_ok: &'static str,
+    /// Ban-permission check, failing.
+    pub ban_perm_missing: &'static str,
+    /// "Honeypot roles" check label (the count and mentions are appended).
+    pub check_roles: &'static str,
+    /// "Honeypot channels" check label (the count and mentions are appended).
+    pub check_channels: &'static str,
+    /// Log-channel check, passing; `{}` is the channel mention.
+    pub log_channel_ok: &'static str,
+    /// Log-channel check, failing; `{}` is the channel mention.
+    pub log_channel_missing: &'static str,
+    /// Warning that one or more configured role IDs are absent from the guild;
+    /// `{}` lists the missing IDs.
+    pub roles_missing: &'static str,
+    /// Warning that one or more configured channel IDs are absent from the guild;
+    /// `{}` lists the missing IDs.
+    pub channels_missing: &'static str,
+    /// Passing role-order result: every honeypot role sits below the bot.
+    pub role_order_ok: &'static str,
+    /// Role-order result for ordinary roles above the bot; `{}` lists them.
+    pub role_order_blocking: &'static str,
+    /// Role-order result for privileged/bot roles above the bot (benign); `{}`
+    /// lists them.
+    pub role_order_privileged: &'static str,
+    /// Passing marker (leads a check line).
+    pub ok_mark: &'static str,
+    /// Warning marker (leads a check line).
+    pub warn_mark: &'static str,
+    /// Informational marker (leads a benign notice line).
+    pub info_mark: &'static str,
 }
 
 /// English catalog (the default, and the canonical source wording).
@@ -203,6 +283,47 @@ pub const EN: Messages = Messages {
     ban_failed: "Failed to ban the user. Please try again.",
 
     dry_run_footer: "⚠️ DRY-RUN — no ban/unban was executed",
+
+    cmd_help_desc: "Show the list of commands",
+    cmd_version_desc: "Show the bot version and build hash",
+    cmd_ping_desc: "Show the bot's latency",
+    cmd_whois_desc: "Show information about a user",
+    cmd_whois_user_desc: "The user to look up",
+    cmd_doctor_desc: "Check that the bot is correctly configured for this server",
+
+    cmd_perm_needed: "You need the Ban Members permission to use this command.",
+    cmd_perm_needed_manage: "You need the Manage Server permission to use this command.",
+    cmd_guild_only: "This command can only be used in a server.",
+
+    help_title: "🍯 HoneyPot commands",
+
+    version_title: "🍯 HoneyPot version",
+    version_label: "Version",
+    build_label: "Build",
+
+    ping_title: "🏓 Pong!",
+    pong: "Round-trip latency: {} ms",
+
+    whois_title: "👤 User information",
+    field_badges: "Badges",
+    badges_none: "None",
+
+    doctor_title: "🩺 Configuration check",
+    doctor_not_configured: "This server is not present in the configuration, so there is nothing to check.",
+    ban_perm_ok: "Required permission granted: `Ban Members`",
+    ban_perm_missing: "Required permission missing: `Ban Members`",
+    check_roles: "Honeypot roles",
+    check_channels: "Honeypot channels",
+    log_channel_ok: "Log channel configured: {}",
+    log_channel_missing: "Log channel not found in this server: {}",
+    roles_missing: "These configured role IDs were not found in this server: {}",
+    channels_missing: "These configured channel IDs were not found in this server: {}",
+    role_order_ok: "Every honeypot role sits below the bot's own role.",
+    role_order_blocking: "These roles sit at or above the bot's own role, so the honeypot may not fire correctly: {}",
+    role_order_privileged: "These roles sit at or above the bot's own role. That is fine since they hold elevated permissions, but adjust their position if it was not intended: {}",
+    ok_mark: "✅",
+    warn_mark: "⚠️",
+    info_mark: "ℹ️",
 };
 
 /// Japanese catalog.
@@ -257,6 +378,47 @@ pub const JA: Messages = Messages {
     ban_failed: "BAN に失敗しました。もう一度お試しください。",
 
     dry_run_footer: "⚠️ DRY-RUN — BAN／BAN 解除は実行されていません",
+
+    cmd_help_desc: "コマンド一覧を表示します",
+    cmd_version_desc: "Bot のバージョンとビルドハッシュを表示します",
+    cmd_ping_desc: "Bot のレイテンシを表示します",
+    cmd_whois_desc: "ユーザーの情報を表示します",
+    cmd_whois_user_desc: "対象のユーザー",
+    cmd_doctor_desc: "このサーバーに対して Bot の設定が正しいか検査します",
+
+    cmd_perm_needed: "このコマンドの実行には Ban Members 権限が必要です。",
+    cmd_perm_needed_manage: "このコマンドの実行には サーバー管理 権限が必要です。",
+    cmd_guild_only: "このコマンドはサーバー内でのみ使用できます。",
+
+    help_title: "🍯 HoneyPot コマンド一覧",
+
+    version_title: "🍯 HoneyPot バージョン",
+    version_label: "バージョン",
+    build_label: "ビルド",
+
+    ping_title: "🏓 Pong!",
+    pong: "ラウンドトリップ遅延: {} ms",
+
+    whois_title: "👤 ユーザー情報",
+    field_badges: "バッジ",
+    badges_none: "なし",
+
+    doctor_title: "🩺 設定の検査",
+    doctor_not_configured: "このサーバーは設定に登録されていないため、検査する項目がありません。",
+    ban_perm_ok: "必要な権限が付与されています: `Ban Members`",
+    ban_perm_missing: "必要な権限が付与されていません: `Ban Members`",
+    check_roles: "Honeypot に指定されているロール",
+    check_channels: "Honeypot に指定されているチャンネル",
+    log_channel_ok: "ログチャンネルが設定されています: {}",
+    log_channel_missing: "ログチャンネルがサーバーに存在しません: {}",
+    roles_missing: "次のロール ID がサーバーに存在しません: {}",
+    channels_missing: "次のチャンネル ID がサーバーに存在しません: {}",
+    role_order_ok: "すべての Honeypot ロールが Bot の固有ロールより下位にあります。",
+    role_order_blocking: "次のロールが Bot の固有ロール以上の位置にあるため、ハニーポットが正しく発動しない可能性があります: {}",
+    role_order_privileged: "次のロールが Bot の固有ロール以上の位置にあります。権限所有者のため問題はありませんが、想定されていない場合はロールの位置を調整してください: {}",
+    ok_mark: "✅",
+    warn_mark: "⚠️",
+    info_mark: "ℹ️",
 };
 
 #[cfg(test)]
@@ -302,6 +464,10 @@ mod tests {
             Language::En.messages().btn_unban,
             Language::Ja.messages().btn_unban
         );
+        assert_ne!(
+            Language::En.messages().cmd_help_desc,
+            Language::Ja.messages().cmd_help_desc
+        );
     }
 
     #[test]
@@ -313,6 +479,13 @@ mod tests {
             assert!(msg.confirm_ban_prompt.contains("{}"));
             assert!(msg.unbanned_ack.contains("{}"));
             assert!(msg.banned_ack.contains("{}"));
+            assert!(msg.pong.contains("{}"));
+            assert!(msg.log_channel_ok.contains("{}"));
+            assert!(msg.log_channel_missing.contains("{}"));
+            assert!(msg.roles_missing.contains("{}"));
+            assert!(msg.channels_missing.contains("{}"));
+            assert!(msg.role_order_blocking.contains("{}"));
+            assert!(msg.role_order_privileged.contains("{}"));
         }
     }
 }

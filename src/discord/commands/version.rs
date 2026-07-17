@@ -1,0 +1,48 @@
+//! `/version` — reports the crate version and the build's commit hash.
+//!
+//! The commit hash is baked in at compile time by `build.rs` as
+//! `HONEYPOT_BUILD_SHA` (see that file for how it is resolved). Both fields link
+//! into GitHub — the version to its release tag, the hash to its commit.
+
+use crate::discord::commands;
+use crate::i18n::Language;
+use serenity::all::{CommandInteraction, Context, CreateEmbed};
+
+/// The build's commit hash, injected by `build.rs`.
+const BUILD_SHA: &str = env!("HONEYPOT_BUILD_SHA");
+/// The crate version.
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The repository URL, from `Cargo.toml`.
+const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
+/// Sentinel `build.rs` emits when it cannot resolve a commit hash.
+const UNKNOWN_SHA: &str = "unknown";
+
+pub(super) async fn run(ctx: &Context, command: &CommandInteraction) {
+    let language = commands::language_for(command.guild_id);
+    commands::respond_embed(ctx, command, build_embed(language)).await;
+}
+
+/// Builds the version embed for `language`.
+pub(crate) fn build_embed(language: Language) -> CreateEmbed {
+    let msg = language.messages();
+    CreateEmbed::new()
+        .title(msg.version_title)
+        .field(msg.version_label, version_link(), true)
+        .field(msg.build_label, build_link(), true)
+}
+
+/// The version as a markdown link to its GitHub release tag.
+fn version_link() -> String {
+    // release-please tags this crate as `honeypot-v{version}`.
+    format!("[{VERSION}]({REPOSITORY}/releases/tag/honeypot-v{VERSION})")
+}
+
+/// The commit hash as a markdown link to its GitHub commit, or plain text when
+/// the hash is unknown (a build without git or an injected SHA).
+fn build_link() -> String {
+    if BUILD_SHA == UNKNOWN_SHA {
+        format!("`{BUILD_SHA}`")
+    } else {
+        format!("[`{BUILD_SHA}`]({REPOSITORY}/commit/{BUILD_SHA})")
+    }
+}
