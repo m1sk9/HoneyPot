@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.1](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.4.0...honeypot-v0.4.1) (2026-07-19)
+
+
+### Miscellaneous
+
+* **deps:** update rust crate serde to v1.0.229 ([#31](https://github.com/m1sk9/HoneyPot/issues/31)) ([8cde9c8](https://github.com/m1sk9/HoneyPot/commit/8cde9c8000e0f3bc209a17693e2435fd2863299f))
+* **deps:** update rust crate thiserror to v2.0.19 ([#32](https://github.com/m1sk9/HoneyPot/issues/32)) ([7ec76c1](https://github.com/m1sk9/HoneyPot/commit/7ec76c190b24e738717a35d332e07982535458ff))
+* **deps:** update rust crate tokio to v1.52.4 ([#28](https://github.com/m1sk9/HoneyPot/issues/28)) ([784d2ca](https://github.com/m1sk9/HoneyPot/commit/784d2ca422de0a6169e892fab35e18e017b87514))
+* **deps:** update rust crate tokio to v1.53.0 ([#30](https://github.com/m1sk9/HoneyPot/issues/30)) ([84a5c5d](https://github.com/m1sk9/HoneyPot/commit/84a5c5d39249d106d060a0b1b9bad5c9dfc1d13c))
+
 ## [0.4.0](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.3.0...honeypot-v0.4.0) (2026-07-15)
 
 
