@@ -140,4 +140,26 @@ mod tests {
     fn badge_names_empty_when_no_flags() {
         assert!(badge_names(UserPublicFlags::empty()).is_empty());
     }
+
+    #[test]
+    fn build_embed_shows_badges_and_a_warning_when_flagged() {
+        let mut user = User::default();
+        user.name = "spammy".to_string();
+        user.discriminator = None;
+        user.public_flags = Some(UserPublicFlags::ACTIVE_DEVELOPER | UserPublicFlags::SPAMMER);
+
+        let embed = build_embed(&user, None, Language::En);
+        let value = serenity::json::to_value(embed).expect("embed serializes");
+        let names: Vec<&str> = value["fields"]
+            .as_array()
+            .expect("fields present")
+            .iter()
+            .map(|field| field["name"].as_str().unwrap())
+            .collect();
+
+        let msg = Language::En.messages();
+        assert!(names.contains(&msg.field_badges));
+        // The spammer flag (and default avatar) trip the shared warnings field.
+        assert!(names.contains(&msg.field_warnings));
+    }
 }

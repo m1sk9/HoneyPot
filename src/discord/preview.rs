@@ -251,3 +251,15 @@ fn fabricated_id(created_ms: u64) -> UserId {
 fn captioned(caption: &str, embed: CreateEmbed) -> CreateMessage {
     CreateMessage::new().content(caption).embed(embed)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sample_messages_covers_every_variant_in_both_languages() {
+        // 6 log-embed variants + 5 command embeds, per each supported language.
+        let messages = sample_messages(ChannelId::new(1));
+        assert_eq!(messages.len(), (6 + 5) * 2);
+    }
+}

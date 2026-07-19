@@ -37,12 +37,41 @@ fn version_link() -> String {
     format!("[{VERSION}]({REPOSITORY}/releases/tag/honeypot-v{VERSION})")
 }
 
+/// The `build.rs`-injected commit hash as a GitHub commit link.
+fn build_link() -> String {
+    build_link_for(BUILD_SHA)
+}
+
 /// The commit hash as a markdown link to its GitHub commit, or plain text when
 /// the hash is unknown (a build without git or an injected SHA).
-fn build_link() -> String {
-    if BUILD_SHA == UNKNOWN_SHA {
-        format!("`{BUILD_SHA}`")
+fn build_link_for(sha: &str) -> String {
+    if sha == UNKNOWN_SHA {
+        format!("`{sha}`")
     } else {
-        format!("[`{BUILD_SHA}`]({REPOSITORY}/commit/{BUILD_SHA})")
+        format!("[`{sha}`]({REPOSITORY}/commit/{sha})")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_link_points_at_the_release_tag() {
+        let link = version_link();
+        assert!(link.contains(REPOSITORY));
+        assert!(link.contains(VERSION));
+        assert!(link.contains("/releases/tag/honeypot-v"));
+    }
+
+    #[test]
+    fn build_link_links_a_known_hash_to_its_commit() {
+        let link = build_link_for("abc1234");
+        assert_eq!(link, format!("[`abc1234`]({REPOSITORY}/commit/abc1234)"));
+    }
+
+    #[test]
+    fn build_link_is_plain_text_for_an_unknown_hash() {
+        assert_eq!(build_link_for(UNKNOWN_SHA), "`unknown`");
     }
 }

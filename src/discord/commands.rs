@@ -264,4 +264,32 @@ mod tests {
     fn definitions_cover_every_command() {
         assert_eq!(definitions().len(), 5);
     }
+
+    #[test]
+    fn command_mention_falls_back_to_plain_text_when_unregistered() {
+        // A name no registration inserts, so the id lookup always misses.
+        assert_eq!(
+            command_mention("unregistered_zzz", None),
+            "/unregistered_zzz"
+        );
+    }
+
+    #[test]
+    fn command_mention_renders_a_clickable_mention_for_a_known_id() {
+        // A unique fake name keeps this independent of the shared registry.
+        COMMAND_IDS
+            .lock()
+            .expect("command id registry poisoned")
+            .global
+            .insert("fakeglobal_zzz".to_string(), CommandId::new(42));
+        assert_eq!(
+            command_mention("fakeglobal_zzz", None),
+            "</fakeglobal_zzz:42>"
+        );
+    }
+
+    #[test]
+    fn language_for_defaults_to_english_outside_a_guild() {
+        assert_eq!(language_for(None), Language::En);
+    }
 }

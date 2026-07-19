@@ -217,6 +217,14 @@ mod tests {
     }
 
     #[test]
+    fn guild_ids_lists_every_configured_guild() {
+        let config = HoneyPotConfig::from_entries(vec![entry(1), entry(2)]);
+        let mut ids: Vec<u64> = config.guild_ids().map(|id| id.get()).collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![1, 2]);
+    }
+
+    #[test]
     fn parse_dry_run_enabled_values() {
         for value in ["1", "true", "TRUE", " true ", "True"] {
             assert!(parse_dry_run(value), "expected {value:?} to enable dry-run");

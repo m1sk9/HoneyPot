@@ -29,3 +29,28 @@ pub(crate) fn build_embed(language: Language, guild_id: Option<GuildId>) -> Crea
 
     CreateEmbed::new().title(msg.help_title).description(body)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_embed_lists_every_command() {
+        let embed = build_embed(Language::En, None);
+        let value = serenity::json::to_value(embed).expect("embed serializes");
+        let description = value["description"].as_str().expect("description present");
+        // No registration runs in tests, so mentions fall back to plain `/name`.
+        for name in [
+            commands::HELP,
+            commands::VERSION,
+            commands::PING,
+            commands::WHOIS,
+            commands::DOCTOR,
+        ] {
+            assert!(
+                description.contains(&format!("/{name}")),
+                "missing {name} in help body"
+            );
+        }
+    }
+}

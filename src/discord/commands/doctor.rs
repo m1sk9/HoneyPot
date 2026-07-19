@@ -477,4 +477,66 @@ mod tests {
         assert!(is_privileged_role(Permissions::empty(), true));
         assert!(!is_privileged_role(Permissions::SEND_MESSAGES, false));
     }
+
+    #[test]
+    fn report_warns_when_ban_permission_is_missing() {
+        let msg = Language::En.messages();
+        let findings = Findings {
+            ban_ok: false,
+            ..healthy_findings()
+        };
+        let text = report(&findings, msg);
+        assert!(text.contains(msg.ban_perm_missing));
+        assert!(text.contains(msg.warn_mark));
+    }
+
+    #[test]
+    fn report_lists_missing_role_and_channel_ids() {
+        let msg = Language::En.messages();
+        let findings = Findings {
+            missing_roles: vec![RoleId::new(9)],
+            missing_channels: vec![ChannelId::new(8)],
+            ..healthy_findings()
+        };
+        let text = report(&findings, msg);
+        assert!(text.contains("`9`"));
+        assert!(text.contains("`8`"));
+        assert!(text.contains(msg.warn_mark));
+    }
+
+    #[test]
+    fn report_warns_when_log_channel_is_absent() {
+        let msg = Language::En.messages();
+        let findings = Findings {
+            log_present: false,
+            ..healthy_findings()
+        };
+        // healthy_findings sets the log channel to id 3.
+        assert!(report(&findings, msg).contains("<#3>"));
+    }
+
+    #[test]
+    fn labeled_ids_renders_count_and_mentions_or_zero() {
+        assert_eq!(labeled_ids("Roles", &[RoleId::new(1)]), "Roles: 1 (<@&1>)");
+        assert_eq!(labeled_ids::<RoleId>("Roles", &[]), "Roles: 0");
+    }
+
+    #[test]
+    fn join_ids_backtick_wraps_each_id() {
+        assert_eq!(join_ids(&[RoleId::new(1), RoleId::new(2)]), "`1`, `2`");
+    }
+
+    #[test]
+    fn build_embed_titles_and_describes_the_report() {
+        let msg = Language::En.messages();
+        let embed = build_embed(&healthy_findings(), Language::En);
+        let value = serenity::json::to_value(embed).expect("embed serializes");
+        assert_eq!(value["title"].as_str().unwrap(), msg.doctor_title);
+        assert!(
+            value["description"]
+                .as_str()
+                .unwrap()
+                .contains(msg.ban_perm_ok)
+        );
+    }
 }

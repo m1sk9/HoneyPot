@@ -41,3 +41,15 @@ pub(crate) fn build_embed(language: Language, latency_ms: u128) -> CreateEmbed {
         .title(msg.ping_title)
         .description(msg.pong.replace("{}", &latency_ms.to_string()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_embed_reports_the_latency() {
+        let embed = build_embed(Language::En, 42);
+        let value = serenity::json::to_value(embed).expect("embed serializes");
+        assert!(value["description"].as_str().unwrap().contains("42"));
+    }
+}
