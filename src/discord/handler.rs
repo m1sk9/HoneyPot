@@ -13,6 +13,7 @@
 use crate::discord::ban::{
     self, BanTrigger, OffenderContext, is_honeypot_channel, newly_acquired_honeypot_role,
 };
+use crate::discord::commands;
 use crate::discord::interaction;
 use crate::settings::{GuildConfig, HoneyPotConfig};
 use serenity::all::{
@@ -30,6 +31,14 @@ static BOT_USER_ID: OnceLock<UserId> = OnceLock::new();
 /// harmless: no gateway events arrive before `ready`.
 fn is_self(id: UserId) -> bool {
     BOT_USER_ID.get() == Some(&id)
+}
+
+/// This bot's own user ID, or `None` before `ready` has captured it.
+///
+/// Used by the `/doctor` command to locate the bot's member and compare its
+/// role position against the honeypot roles.
+pub(crate) fn bot_user_id() -> Option<UserId> {
+    BOT_USER_ID.get().copied()
 }
 
 /// Acts on a confirmed honeypot trigger for `user` in `guild`.
@@ -90,10 +99,12 @@ pub struct HoneyPotEventHandler;
 
 #[serenity::async_trait]
 impl EventHandler for HoneyPotEventHandler {
-    async fn ready(&self, _ctx: Context, ready: Ready) {
+    async fn ready(&self, ctx: Context, ready: Ready) {
         let _ = BOT_USER_ID.set(ready.user.id);
         let version = format!("v{}", env!("CARGO_PKG_VERSION"));
         tracing::info!("Running {}, {} is connected!", version, ready.user.name);
+
+        commands::register(&ctx).await;
     }
 
     async fn guild_member_update(
@@ -176,8 +187,14 @@ impl EventHandler for HoneyPotEventHandler {
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-        if let Interaction::Component(component) = interaction {
-            interaction::handle_component(&ctx, &component).await;
+        match interaction {
+            Interaction::Component(component) => {
+                interaction::handle_component(&ctx, &component).await;
+            }
+            Interaction::Command(command) => {
+                commands::dispatch(&ctx, &command).await;
+            }
+            _ => {}
         }
     }
 

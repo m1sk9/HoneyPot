@@ -456,7 +456,7 @@ const SECONDS_PER_DAY: i64 = 86_400;
 /// The tag and display name embed user-controlled text inside inline code spans,
 /// so backticks are neutralized to keep the spans from being broken (spoofing
 /// the log embed's layout).
-fn target_field(target: &User, msg: &Messages) -> String {
+pub(crate) fn target_field(target: &User, msg: &Messages) -> String {
     let tag = target.tag().replace('`', "'");
     let mut field = format!("{} (`{}`)", target.mention(), tag);
     if let Some(global) = &target.global_name {
@@ -472,7 +472,7 @@ fn target_field(target: &User, msg: &Messages) -> String {
 ///
 /// The client localizes both forms — including the mobile app, where the
 /// moderator view that would otherwise surface this detail is unavailable.
-fn timestamp_field(ts: Timestamp) -> String {
+pub(crate) fn timestamp_field(ts: Timestamp) -> String {
     let secs = ts.unix_timestamp();
     format!("<t:{secs}:F> (<t:{secs}:R>)")
 }
@@ -492,7 +492,7 @@ fn created_field(target: &User) -> String {
 
 /// The "Account" field value: whether the offender is a bot and/or a Discord
 /// system account.
-fn account_type_field(target: &User, msg: &Messages) -> String {
+pub(crate) fn account_type_field(target: &User, msg: &Messages) -> String {
     let yes_no = |flag: bool| if flag { msg.yes } else { msg.no };
     format!(
         "{}: {}\n{}: {}",
@@ -505,7 +505,7 @@ fn account_type_field(target: &User, msg: &Messages) -> String {
 
 /// The "Joined server" field value, or `Unknown` when the trigger did not carry
 /// a join date (a channel trigger's partial member may omit it).
-fn joined_field(offender: &OffenderContext, msg: &Messages) -> String {
+pub(crate) fn joined_field(offender: &OffenderContext, msg: &Messages) -> String {
     match offender.joined_at {
         Some(ts) => timestamp_field(ts),
         None => msg.joined_unknown.to_string(),

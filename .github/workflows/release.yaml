@@ -73,6 +73,8 @@ jobs:
           push: true
           platforms: ${{ matrix.platform }}
           file: ./docker/Dockerfile
+          build-args: |
+            HONEYPOT_BUILD_SHA=${{ github.sha }}
           outputs: type=image,name=ghcr.io/m1sk9/honeypot,push-by-digest=true,name-canonical=true
           cache-from: type=gha,scope=${{ matrix.cache-scope }}
           cache-to: type=gha,scope=${{ matrix.cache-scope }},mode=max

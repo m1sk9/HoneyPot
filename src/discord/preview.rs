@@ -1,19 +1,21 @@
 //! Embed preview mode (compiled only under the `preview` feature).
 //!
 //! When the crate is built with `--features preview`, `main` posts one message
-//! per honeypot log-embed variant — in *every* [`Language`] — to the channel
-//! named by [`PREVIEW_CHANNEL_ENV`], then exits without connecting to the
-//! gateway or reading the guild config. This lets the embed layouts (and each
-//! localization) be reviewed on any Discord client — including mobile, where the
-//! moderator view is unavailable — without tripping a real honeypot.
+//! per honeypot log-embed variant *and* per slash-command reply embed — in
+//! *every* [`Language`] — to the channel named by [`PREVIEW_CHANNEL_ENV`], then
+//! exits without connecting to the gateway or reading the guild config. This lets
+//! the embed layouts (and each localization) be reviewed on any Discord client —
+//! including mobile, where the moderator view is unavailable — without tripping a
+//! real honeypot or invoking a command.
 //!
 //! The samples are built with the *real* embed builders ([`ban::build_ban_embed`],
 //! [`ban::build_pending_embed`], [`interaction::resolved_embed`],
-//! [`interaction::manually_banned_embed`]), so a preview cannot drift from what
-//! the bot actually posts. The feature is off by default, so neither this module
-//! nor its fabricated sample data is compiled into the production binary.
+//! [`interaction::manually_banned_embed`], and each command module's
+//! `build_embed`), so a preview cannot drift from what the bot actually posts. The
+//! feature is off by default, so neither this module nor its fabricated sample
+//! data is compiled into the production binary.
 
-use crate::discord::{ban, interaction};
+use crate::discord::{ban, commands, interaction};
 use crate::error::HoneyPotError;
 use crate::i18n::Language;
 use serenity::all::{
@@ -85,6 +87,20 @@ fn sample_messages(channel_id: ChannelId) -> Vec<CreateMessage> {
     moderator.name = "mod".to_string();
     moderator.discriminator = None;
     moderator.global_name = Some("A Moderator".to_string());
+
+    // An account with a couple of profile badges *and* the spammer flag, so the
+    // `/whois` preview shows both a populated badges field and the warnings field.
+    let mut whois_target = User::default();
+    whois_target.id = fabricated_id(now_ms - 400 * DAY_MS);
+    whois_target.name = "member".to_string();
+    whois_target.discriminator = None;
+    whois_target.global_name = Some("A Member".to_string());
+    whois_target.public_flags = Some(
+        UserPublicFlags::ACTIVE_DEVELOPER
+            | UserPublicFlags::EARLY_SUPPORTER
+            | UserPublicFlags::SPAMMER,
+    );
+    let doctor_findings = commands::doctor::preview_findings();
 
     let flagged = ban::OffenderContext {
         joined_at: Some(ts(now_ms - HOUR_MS)),
@@ -180,6 +196,29 @@ fn sample_messages(channel_id: ChannelId) -> Vec<CreateMessage> {
                     .label(language.messages().btn_ban),
             ])]),
         );
+
+        // Slash-command reply embeds, built with the real command builders so
+        // these previews cannot drift from what the commands post.
+        messages.push(captioned(
+            &format!("**[{tag}] Command 1/5** — /help"),
+            commands::help::build_embed(language, None),
+        ));
+        messages.push(captioned(
+            &format!("**[{tag}] Command 2/5** — /version"),
+            commands::version::build_embed(language),
+        ));
+        messages.push(captioned(
+            &format!("**[{tag}] Command 3/5** — /ping"),
+            commands::ping::build_embed(language, 42),
+        ));
+        messages.push(captioned(
+            &format!("**[{tag}] Command 4/5** — /whois"),
+            commands::whois::build_embed(&whois_target, None, language),
+        ));
+        messages.push(captioned(
+            &format!("**[{tag}] Command 5/5** — /doctor"),
+            commands::doctor::build_embed(&doctor_findings, language),
+        ));
     }
     messages
 }
@@ -211,4 +250,16 @@ fn fabricated_id(created_ms: u64) -> UserId {
 /// A [`CreateMessage`] with a caption line and a single embed.
 fn captioned(caption: &str, embed: CreateEmbed) -> CreateMessage {
     CreateMessage::new().content(caption).embed(embed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sample_messages_covers_every_variant_in_both_languages() {
+        // 6 log-embed variants + 5 command embeds, per each supported language.
+        let messages = sample_messages(ChannelId::new(1));
+        assert_eq!(messages.len(), (6 + 5) * 2);
+    }
 }
