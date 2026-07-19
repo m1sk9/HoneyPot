@@ -1,5 +1,6 @@
-//! `/whois <user>` — shows a user's basic info, public badges, and, when the
-//! account trips any risk signal, the same warnings the ban embed surfaces.
+//! `/whois <user>` — shows a user's basic info, public badges, and, when
+//! Discord itself has flagged the account (spammer mark or unusual DM activity),
+//! a warnings field for those flags.
 //!
 //! The user (and their partial member, when in a guild) is resolved from the
 //! interaction, which carries the full [`User`] (including `public_flags`), so no
@@ -7,7 +8,7 @@
 //! here, matching the button handlers.
 
 use crate::discord::{ban, commands};
-use crate::i18n::Language;
+use crate::i18n::{Language, Messages};
 use serenity::all::{
     CommandInteraction, Context, CreateEmbed, PartialMember, ResolvedValue, Timestamp, User,
     UserPublicFlags,
@@ -50,8 +51,11 @@ fn resolved_target(command: &CommandInteraction) -> Option<(&User, Option<&Parti
 /// Builds the user-information embed.
 ///
 /// Always shows the basic fields (user, account type, creation and join dates,
-/// badges); appends the aggregated warnings field only when a risk signal fires,
-/// reusing the ban embed's [`ban::warnings_field`] so the two stay consistent.
+/// badges). A warnings field is appended only for Discord's own account *flags*
+/// — the spammer mark and an active unusual-DM-activity flag. The ban embed's
+/// broader heuristics (new account, default avatar) are deliberately *not*
+/// reused here: they fire for many legitimate members and would make a routine
+/// lookup read like a threat report.
 pub(crate) fn build_embed(
     user: &User,
     member: Option<&PartialMember>,
@@ -82,10 +86,32 @@ pub(crate) fn build_embed(
         .field(msg.field_joined, ban::joined_field(&offender, msg), true)
         .field(msg.field_badges, badges_value, false);
 
-    if let Some(warnings) = ban::warnings_field(user, &offender, Timestamp::now(), msg) {
+    if let Some(warnings) = flag_warnings(user, &offender, msg) {
         embed = embed.field(msg.field_warnings, warnings, false);
     }
     embed
+}
+
+/// The account's active Discord flags as warning lines, or `None` when it has
+/// none. Limited to the spammer mark and an unexpired unusual-DM-activity flag
+/// — signals Discord itself set, not the ban embed's heuristics.
+fn flag_warnings(user: &User, offender: &ban::OffenderContext, msg: &Messages) -> Option<String> {
+    let mut lines = Vec::new();
+    if user
+        .public_flags
+        .is_some_and(|flags| flags.contains(UserPublicFlags::SPAMMER))
+    {
+        lines.push(msg.spammer.to_string());
+    }
+    if let Some(until) = offender.unusual_dm_activity_until
+        && until.unix_timestamp() > Timestamp::now().unix_timestamp()
+    {
+        lines.push(
+            msg.unusual_dm_flagged
+                .replace("{}", &ban::timestamp_field(until)),
+        );
+    }
+    (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
 /// Maps the account's public flags to their badge names.
@@ -159,7 +185,26 @@ mod tests {
 
         let msg = Language::En.messages();
         assert!(names.contains(&msg.field_badges));
-        // The spammer flag (and default avatar) trip the shared warnings field.
+        // The spammer flag drives the warnings field.
         assert!(names.contains(&msg.field_warnings));
+    }
+
+    #[test]
+    fn build_embed_omits_warnings_for_an_unflagged_account() {
+        // A default account with only a badge and no spammer/DM flag: no warnings.
+        let mut user = User::default();
+        user.name = "member".to_string();
+        user.discriminator = None;
+        user.public_flags = Some(UserPublicFlags::ACTIVE_DEVELOPER);
+
+        let embed = build_embed(&user, None, Language::En);
+        let value = serenity::json::to_value(embed).expect("embed serializes");
+        let names: Vec<&str> = value["fields"]
+            .as_array()
+            .expect("fields present")
+            .iter()
+            .map(|field| field["name"].as_str().unwrap())
+            .collect();
+        assert!(!names.contains(&Language::En.messages().field_warnings));
     }
 }

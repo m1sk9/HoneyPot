@@ -153,13 +153,20 @@ fn name_to_id(commands: &[serenity::all::Command]) -> HashMap<String, CommandId>
         .collect()
 }
 
-/// Renders a clickable slash-command mention (`</name:id>`) for `name`, falling
-/// back to plain `/name` text when the command's id is unknown.
-///
-/// The id is resolved from the invoking guild's registration first, then the
-/// global set (see [`COMMAND_IDS`]).
-pub(crate) fn command_mention(name: &str, guild_id: Option<GuildId>) -> String {
+/// Renders clickable slash-command mentions (`</name:id>`) for `names` under a
+/// single registry lock, falling back to plain `/name` text for any command
+/// whose id is unknown (e.g. the embed preview, which never registers).
+pub(crate) fn command_mentions(names: &[&str], guild_id: Option<GuildId>) -> Vec<String> {
     let registry = COMMAND_IDS.lock().expect("command id registry poisoned");
+    names
+        .iter()
+        .map(|name| render_mention(&registry, name, guild_id))
+        .collect()
+}
+
+/// Renders one mention from an already-locked registry. The id is resolved from
+/// the invoking guild's registration first, then the global set.
+fn render_mention(registry: &CommandIdRegistry, name: &str, guild_id: Option<GuildId>) -> String {
     let id = guild_id
         .and_then(|guild| registry.per_guild.get(&guild))
         .and_then(|ids| ids.get(name))
@@ -266,16 +273,16 @@ mod tests {
     }
 
     #[test]
-    fn command_mention_falls_back_to_plain_text_when_unregistered() {
+    fn command_mentions_fall_back_to_plain_text_when_unregistered() {
         // A name no registration inserts, so the id lookup always misses.
         assert_eq!(
-            command_mention("unregistered_zzz", None),
-            "/unregistered_zzz"
+            command_mentions(&["unregistered_zzz"], None),
+            vec!["/unregistered_zzz".to_string()]
         );
     }
 
     #[test]
-    fn command_mention_renders_a_clickable_mention_for_a_known_id() {
+    fn command_mentions_render_a_clickable_mention_for_a_known_id() {
         // A unique fake name keeps this independent of the shared registry.
         COMMAND_IDS
             .lock()
@@ -283,8 +290,8 @@ mod tests {
             .global
             .insert("fakeglobal_zzz".to_string(), CommandId::new(42));
         assert_eq!(
-            command_mention("fakeglobal_zzz", None),
-            "</fakeglobal_zzz:42>"
+            command_mentions(&["fakeglobal_zzz"], None),
+            vec!["</fakeglobal_zzz:42>".to_string()]
         );
     }
 

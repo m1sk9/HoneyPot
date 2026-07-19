@@ -23,7 +23,11 @@ fn main() {
 
     println!("cargo:rustc-env=HONEYPOT_BUILD_SHA={sha}");
     println!("cargo:rerun-if-env-changed=HONEYPOT_BUILD_SHA");
+    // `.git/HEAD` changes on branch switch; `.git/logs/HEAD` is appended to on
+    // every commit/checkout/reset, so it — not HEAD, whose content is unchanged
+    // by a commit on the same branch — is what refreshes the hash after a commit.
     println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=.git/logs/HEAD");
 }
 
 /// The current commit's short SHA via `git`, or `None` when git is unavailable.

@@ -14,8 +14,9 @@ use crate::discord::handler;
 use crate::i18n::{Language, Messages};
 use crate::settings::{GuildConfig, HoneyPotConfig};
 use serenity::all::{
-    ChannelId, CommandInteraction, Context, CreateEmbed, Mentionable, PartialGuild, Permissions,
-    RoleId, UserId,
+    ChannelId, CommandInteraction, Context, CreateEmbed, CreateInteractionResponse,
+    CreateInteractionResponseMessage, EditInteractionResponse, Mentionable, PartialGuild,
+    Permissions, RoleId, UserId,
 };
 
 pub(super) async fn run(ctx: &Context, command: &CommandInteraction) {
@@ -43,30 +44,65 @@ pub(super) async fn run(ctx: &Context, command: &CommandInteraction) {
         return;
     };
 
-    let guild = match guild_id.to_partial_guild(&ctx.http).await {
-        Ok(guild) => guild,
-        Err(error) => {
-            tracing::error!(%error, %guild_id, "doctor: failed to fetch guild");
-            return;
-        }
-    };
-    let bot_roles = match guild_id.member(&ctx.http, bot_id).await {
-        Ok(member) => member.roles,
-        Err(error) => {
-            tracing::error!(%error, %guild_id, "doctor: failed to fetch bot member");
-            return;
-        }
-    };
-    let channels = match guild_id.channels(&ctx.http).await {
-        Ok(channels) => channels.into_keys().collect::<Vec<_>>(),
-        Err(error) => {
-            tracing::error!(%error, %guild_id, "doctor: failed to fetch channels");
+    // Acknowledge up front: the checks below hit the API three times, which can
+    // exceed Discord's 3-second initial-response deadline. After deferring, the
+    // reply is delivered by editing the deferred response.
+    let defer =
+        CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new().ephemeral(true));
+    if let Err(error) = command.create_response(&ctx.http, defer).await {
+        tracing::error!(%error, %guild_id, "doctor: failed to defer response");
+        return;
+    }
+
+    // Independent fetches, run concurrently. Threads are fetched separately
+    // because `channels()` omits them, which would otherwise report a honeypot
+    // or log channel that is a thread as missing.
+    let (guild, bot_member, channels, threads) = tokio::join!(
+        guild_id.to_partial_guild(&ctx.http),
+        guild_id.member(&ctx.http, bot_id),
+        guild_id.channels(&ctx.http),
+        guild_id.get_active_threads(&ctx.http),
+    );
+    let (guild, bot_member, channels) = match (guild, bot_member, channels) {
+        (Ok(guild), Ok(member), Ok(channels)) => (guild, member, channels),
+        (guild, member, channels) => {
+            tracing::error!(
+                %guild_id,
+                guild_err = guild.is_err(),
+                member_err = member.is_err(),
+                channels_err = channels.is_err(),
+                "doctor: failed to fetch guild data"
+            );
+            edit_text(ctx, command, msg.doctor_failed).await;
             return;
         }
     };
 
-    let findings = collect_findings(config, &guild, &bot_roles, &channels, bot_id);
-    commands::respond_embed(ctx, command, build_embed(&findings, language)).await;
+    let mut channel_ids: Vec<ChannelId> = channels.into_keys().collect();
+    // A failed thread fetch is non-fatal: fall back to non-thread channels only.
+    match threads {
+        Ok(threads) => channel_ids.extend(threads.threads.into_iter().map(|thread| thread.id)),
+        Err(error) => tracing::warn!(%error, %guild_id, "doctor: failed to fetch active threads"),
+    }
+
+    let findings = collect_findings(config, &guild, &bot_member.roles, &channel_ids, bot_id);
+    edit_embed(ctx, command, build_embed(&findings, language)).await;
+}
+
+/// Replaces the deferred response with an embed, logging any failure.
+async fn edit_embed(ctx: &Context, command: &CommandInteraction, embed: CreateEmbed) {
+    let edit = EditInteractionResponse::new().embed(embed);
+    if let Err(error) = command.edit_response(&ctx.http, edit).await {
+        tracing::error!(%error, "doctor: failed to edit response");
+    }
+}
+
+/// Replaces the deferred response with a text line, logging any failure.
+async fn edit_text(ctx: &Context, command: &CommandInteraction, content: &str) {
+    let edit = EditInteractionResponse::new().content(content);
+    if let Err(error) = command.edit_response(&ctx.http, edit).await {
+        tracing::error!(%error, "doctor: failed to edit response");
+    }
 }
 
 /// The outcome of every configuration check, extracted from the guild data.

@@ -198,6 +198,8 @@ pub struct Messages {
     pub doctor_title: &'static str,
     /// Shown when `/doctor` runs in a guild absent from the configuration.
     pub doctor_not_configured: &'static str,
+    /// Shown when `/doctor` cannot fetch the guild data it needs.
+    pub doctor_failed: &'static str,
     /// Ban-permission check, passing.
     pub ban_perm_ok: &'static str,
     /// Ban-permission check, failing.
@@ -310,6 +312,7 @@ pub const EN: Messages = Messages {
 
     doctor_title: "🩺 Configuration check",
     doctor_not_configured: "This server is not present in the configuration, so there is nothing to check.",
+    doctor_failed: "Could not read this server's roles or channels. Please try again.",
     ban_perm_ok: "Required permission granted: `Ban Members`",
     ban_perm_missing: "Required permission missing: `Ban Members`",
     check_roles: "Honeypot roles",
@@ -405,6 +408,7 @@ pub const JA: Messages = Messages {
 
     doctor_title: "🩺 設定の検査",
     doctor_not_configured: "このサーバーは設定に登録されていないため、検査する項目がありません。",
+    doctor_failed: "このサーバーのロールまたはチャンネルを取得できませんでした。もう一度お試しください。",
     ban_perm_ok: "必要な権限が付与されています: `Ban Members`",
     ban_perm_missing: "必要な権限が付与されていません: `Ban Members`",
     check_roles: "Honeypot に指定されているロール",

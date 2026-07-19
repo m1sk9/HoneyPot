@@ -526,7 +526,7 @@ pub(crate) fn joined_field(offender: &OffenderContext, msg: &Messages) -> String
 /// `UserPublicFlags::SPAMMER` only exists because serenity is built with
 /// `unstable_discord_api` (enabled in `Cargo.toml`); serenity's bitflags
 /// deserializer would otherwise truncate the bit out of `public_flags`.
-pub(crate) fn warnings_field(
+fn warnings_field(
     target: &User,
     offender: &OffenderContext,
     now: Timestamp,

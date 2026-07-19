@@ -15,17 +15,20 @@ pub(super) async fn run(ctx: &Context, command: &CommandInteraction) {
 /// `guild_id` (see [`commands::command_mention`]).
 pub(crate) fn build_embed(language: Language, guild_id: Option<GuildId>) -> CreateEmbed {
     let msg = language.messages();
-    let body = [
+    let entries = [
         (commands::HELP, msg.cmd_help_desc),
         (commands::VERSION, msg.cmd_version_desc),
         (commands::PING, msg.cmd_ping_desc),
         (commands::WHOIS, msg.cmd_whois_desc),
         (commands::DOCTOR, msg.cmd_doctor_desc),
-    ]
-    .into_iter()
-    .map(|(name, desc)| format!("{} — {desc}", commands::command_mention(name, guild_id)))
-    .collect::<Vec<_>>()
-    .join("\n");
+    ];
+    let names: Vec<&str> = entries.iter().map(|(name, _)| *name).collect();
+    let body = commands::command_mentions(&names, guild_id)
+        .into_iter()
+        .zip(entries)
+        .map(|(mention, (_, desc))| format!("{mention} — {desc}"))
+        .collect::<Vec<_>>()
+        .join("\n");
 
     CreateEmbed::new().title(msg.help_title).description(body)
 }
