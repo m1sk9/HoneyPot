@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.4.1...honeypot-v0.5.0) (2026-07-19)
+
+
+### Features
+
+* add slash command system (/help, /version, /ping, /whois, /doctor) ([#33](https://github.com/m1sk9/HoneyPot/issues/33)) ([801d877](https://github.com/m1sk9/HoneyPot/commit/801d8778d2778583b41680c0e9fdd7302bd81341))
+
 ## [0.4.1](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.4.0...honeypot-v0.4.1) (2026-07-19)
 
 
