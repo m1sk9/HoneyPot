@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.5.0...honeypot-v0.5.1) (2026-07-20)
+
+
+### Miscellaneous
+
+* **deps:** update rust crate tokio to v1.53.1 ([#35](https://github.com/m1sk9/HoneyPot/issues/35)) ([f365c48](https://github.com/m1sk9/HoneyPot/commit/f365c4883fa8657bad9610c8950fbdb85e96e7cc))
+
 ## [0.5.0](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.4.1...honeypot-v0.5.0) (2026-07-19)
 
 
