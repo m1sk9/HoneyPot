@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.0](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.5.0...honeypot-v0.6.0) (2026-08-14)
+
+
+### Features
+
+* support running version status ([#40](https://github.com/m1sk9/HoneyPot/issues/40)) ([9cd5d38](https://github.com/m1sk9/HoneyPot/commit/9cd5d38d6ec2d39643c0a6d996e6bc9c0f1036f0))
+
+
+### Miscellaneous
+
+* **deps:** update rust crate thiserror to v2.0.20 ([#39](https://github.com/m1sk9/HoneyPot/issues/39)) ([afc3676](https://github.com/m1sk9/HoneyPot/commit/afc36760c98739224b395215ac89ccc1d8ef1876))
+* **deps:** update rust crate tokio to v1.53.1 ([#35](https://github.com/m1sk9/HoneyPot/issues/35)) ([f365c48](https://github.com/m1sk9/HoneyPot/commit/f365c4883fa8657bad9610c8950fbdb85e96e7cc))
+* **deps:** update rust crate toml to v1.1.4 ([#37](https://github.com/m1sk9/HoneyPot/issues/37)) ([0d419b1](https://github.com/m1sk9/HoneyPot/commit/0d419b1c8e713bf5fc5cc0620a4de2d13f239144))
+* **deps:** update swatinem/rust-cache action to v2.9.2 ([#38](https://github.com/m1sk9/HoneyPot/issues/38)) ([acb6abe](https://github.com/m1sk9/HoneyPot/commit/acb6abee1a819e5dbbc0bf4f6c790c0bfc63692b))
+
 ## [0.5.0](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.4.1...honeypot-v0.5.0) (2026-07-19)
 
 
