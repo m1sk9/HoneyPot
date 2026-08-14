@@ -17,8 +17,8 @@ use crate::discord::commands;
 use crate::discord::interaction;
 use crate::settings::{GuildConfig, HoneyPotConfig};
 use serenity::all::{
-    Context, EventHandler, GuildId, GuildMemberUpdateEvent, Interaction, Member, Message, Ready,
-    User, UserId,
+    ActivityData, Context, EventHandler, GuildId, GuildMemberUpdateEvent, Interaction, Member,
+    Message, Ready, User, UserId,
 };
 use std::sync::OnceLock;
 
@@ -102,6 +102,7 @@ impl EventHandler for HoneyPotEventHandler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         let _ = BOT_USER_ID.set(ready.user.id);
         let version = format!("v{}", env!("CARGO_PKG_VERSION"));
+        ctx.set_activity(ActivityData::custom(format!("Running {}", version)).into());
         tracing::info!("Running {}, {} is connected!", version, ready.user.name);
 
         commands::register(&ctx).await;
