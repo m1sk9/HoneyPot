@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.6.0...honeypot-v0.6.1) (2026-09-02)
+
+
+### Miscellaneous
+
+* **deps:** update rust crate toml to v1.1.5 ([#41](https://github.com/m1sk9/HoneyPot/issues/41)) ([601e7ba](https://github.com/m1sk9/HoneyPot/commit/601e7badbe58e88885fb3140ffdc187e25201986))
+
 ## [0.6.0](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.5.0...honeypot-v0.6.0) (2026-08-14)
 
 
