@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.1](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.6.0...honeypot-v0.6.1) (2026-09-15)
+
+
+### Miscellaneous
+
+* **deps:** update codecov/codecov-action action to v7.1.0 ([#45](https://github.com/m1sk9/HoneyPot/issues/45)) ([da38350](https://github.com/m1sk9/HoneyPot/commit/da383509e8dc113af920e62ba6d0a3f09d9d07b4))
+* **deps:** update rust crate toml to v1.1.5 ([#41](https://github.com/m1sk9/HoneyPot/issues/41)) ([601e7ba](https://github.com/m1sk9/HoneyPot/commit/601e7badbe58e88885fb3140ffdc187e25201986))
+* **deps:** update rust crate toml to v1.1.6 ([#43](https://github.com/m1sk9/HoneyPot/issues/43)) ([b9bf543](https://github.com/m1sk9/HoneyPot/commit/b9bf5437fa478721f74ba19d9a772d21362d2c6b))
+
 ## [0.6.0](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.5.0...honeypot-v0.6.0) (2026-08-14)
 
 
