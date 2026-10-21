@@ -1,4 +1,4 @@
-FROM lukemathwalker/cargo-chef:latest-rust-1.93.1-bookworm AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.93.1-trixie AS chef
 WORKDIR /root/app
 
 FROM chef AS planner
@@ -18,7 +18,7 @@ ENV HONEYPOT_BUILD_SHA=$HONEYPOT_BUILD_SHA
 COPY . .
 RUN cargo build --release --bin honeypot
 
-FROM gcr.io/distroless/cc-debian12 AS runner
+FROM gcr.io/distroless/cc-debian13 AS runner
 
 COPY --from=builder --chown=root:root /root/app/target/release/honeypot /
 
