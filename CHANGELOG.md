@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.6.1](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.6.0...honeypot-v0.6.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **docker:** move base images to Debian 13 distroless ([#55](https://github.com/m1sk9/HoneyPot/issues/55)) ([18860cd](https://github.com/m1sk9/HoneyPot/commit/18860cd347c41a988fdb1c7e23554b9a8ad9c138))
+
+
+### Miscellaneous
+
+* **deps:** update codecov/codecov-action action to v7.1.0 ([#45](https://github.com/m1sk9/HoneyPot/issues/45)) ([da38350](https://github.com/m1sk9/HoneyPot/commit/da383509e8dc113af920e62ba6d0a3f09d9d07b4))
+* **deps:** update codecov/codecov-action action to v7.1.1 ([#47](https://github.com/m1sk9/HoneyPot/issues/47)) ([d7c3f93](https://github.com/m1sk9/HoneyPot/commit/d7c3f93f92c8808d5ad629c1419ada50e9b2b233))
+* **deps:** update rust crate thiserror to v2.0.21 ([#48](https://github.com/m1sk9/HoneyPot/issues/48)) ([d33abcc](https://github.com/m1sk9/HoneyPot/commit/d33abccd09ac99bb41b660b5ec4ef0df0f6760f3))
+* **deps:** update rust crate tokio to v1.53.2 ([#49](https://github.com/m1sk9/HoneyPot/issues/49)) ([6a35737](https://github.com/m1sk9/HoneyPot/commit/6a35737f4c264d690c926f2622a9e0051c5f4475))
+* **deps:** update rust crate tokio to v1.53.3 ([#52](https://github.com/m1sk9/HoneyPot/issues/52)) ([2647bc6](https://github.com/m1sk9/HoneyPot/commit/2647bc6ddeeb8b1cdd7f2bac5009b3d1562621bd))
+* **deps:** update rust crate tokio to v1.54.0 ([#53](https://github.com/m1sk9/HoneyPot/issues/53)) ([cb91a98](https://github.com/m1sk9/HoneyPot/commit/cb91a9866cef9466b24c8cf9591a890ff0b8a5f4))
+* **deps:** update rust crate toml to v1.1.5 ([#41](https://github.com/m1sk9/HoneyPot/issues/41)) ([601e7ba](https://github.com/m1sk9/HoneyPot/commit/601e7badbe58e88885fb3140ffdc187e25201986))
+* **deps:** update rust crate toml to v1.1.6 ([#43](https://github.com/m1sk9/HoneyPot/issues/43)) ([b9bf543](https://github.com/m1sk9/HoneyPot/commit/b9bf5437fa478721f74ba19d9a772d21362d2c6b))
+* **deps:** update rust crate toml to v1.1.7 ([#50](https://github.com/m1sk9/HoneyPot/issues/50)) ([7aa930d](https://github.com/m1sk9/HoneyPot/commit/7aa930d2fbb1820a0837f3a608c804bb6e7811ec))
+* **deps:** update rust crate toml to v1.1.8 ([#51](https://github.com/m1sk9/HoneyPot/issues/51)) ([6f64e9c](https://github.com/m1sk9/HoneyPot/commit/6f64e9c05d52817b16ce1e8c887f6b171d683ea8))
+* **deps:** update swatinem/rust-cache action to v2.9.3 ([#54](https://github.com/m1sk9/HoneyPot/issues/54)) ([5c7ed00](https://github.com/m1sk9/HoneyPot/commit/5c7ed00f014d8516b117cbf8f42e8441d4d595e5))
+* **deps:** update taiki-e/install-action digest to 8cca091 ([#7](https://github.com/m1sk9/HoneyPot/issues/7)) ([511a239](https://github.com/m1sk9/HoneyPot/commit/511a2396d9948143a10356017be99a8fc0f81ea3))
+
 ## [0.6.0](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.5.0...honeypot-v0.6.0) (2026-08-14)
 
 
