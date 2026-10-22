@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.6.2...honeypot-v0.6.3) (2026-10-22)
+
+
+### Miscellaneous
+
+* **deps:** update rust crate rustls to v0.23.46 ([#61](https://github.com/m1sk9/HoneyPot/issues/61)) ([6889111](https://github.com/m1sk9/HoneyPot/commit/68891111c8f2fec83365e6217a6e45d6de0cbe9b))
+
 ## [0.6.2](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.6.1...honeypot-v0.6.2) (2026-10-22)
 
 
