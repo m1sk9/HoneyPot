@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.2](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.6.1...honeypot-v0.6.2) (2026-10-22)
+
+
+### Miscellaneous
+
+* **deps:** update rust crate futures-util to v0.3.34 ([#60](https://github.com/m1sk9/HoneyPot/issues/60)) ([6757d72](https://github.com/m1sk9/HoneyPot/commit/6757d729ea6d0be953043ec938781c278b5256b9))
+* **deps:** update rust crate serde_json to v1.0.154 ([#62](https://github.com/m1sk9/HoneyPot/issues/62)) ([24d649a](https://github.com/m1sk9/HoneyPot/commit/24d649a349ec4c7f81210e96e5e47347fdf34d53))
+* **deps:** update rust crate tokio to v1.54.1 ([#57](https://github.com/m1sk9/HoneyPot/issues/57)) ([7a5e171](https://github.com/m1sk9/HoneyPot/commit/7a5e171178302b236201bf4150c5d3cf872bb60e))
+* **deps:** update taiki-e/install-action digest to a4d3f3f ([#56](https://github.com/m1sk9/HoneyPot/issues/56)) ([8d4ec6a](https://github.com/m1sk9/HoneyPot/commit/8d4ec6ab902559d3d978d7e66e57108f47914e56))
+* migrate Discord client from serenity to twilight ([#59](https://github.com/m1sk9/HoneyPot/issues/59)) ([41c6b9a](https://github.com/m1sk9/HoneyPot/commit/41c6b9a0d9c118d088ad5e874d2edff6a802a511))
+
 ## [0.6.1](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.6.0...honeypot-v0.6.1) (2026-10-21)
 
 
