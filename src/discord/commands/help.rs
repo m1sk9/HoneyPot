@@ -2,18 +2,27 @@
 
 use crate::discord::commands;
 use crate::i18n::Language;
-use serenity::all::{CommandInteraction, Context, CreateEmbed, GuildId};
+use twilight_http::Client;
+use twilight_model::application::interaction::Interaction;
+use twilight_model::channel::message::Embed;
+use twilight_model::id::{Id, marker::GuildMarker};
+use twilight_util::builder::embed::EmbedBuilder;
 
-pub(super) async fn run(ctx: &Context, command: &CommandInteraction) {
-    let language = commands::language_for(command.guild_id);
-    commands::respond_embed(ctx, command, build_embed(language, command.guild_id)).await;
+pub(super) async fn run(http: &Client, interaction: &Interaction) {
+    let language = commands::language_for(interaction.guild_id);
+    commands::respond_embed(
+        http,
+        interaction,
+        build_embed(language, interaction.guild_id),
+    )
+    .await;
 }
 
 /// Builds the command-list embed for `language`.
 ///
 /// Each command is rendered as a clickable slash-command mention resolved for
-/// `guild_id` (see [`commands::command_mention`]).
-pub(crate) fn build_embed(language: Language, guild_id: Option<GuildId>) -> CreateEmbed {
+/// `guild_id` (see [`commands::command_mentions`]).
+pub(crate) fn build_embed(language: Language, guild_id: Option<Id<GuildMarker>>) -> Embed {
     let msg = language.messages();
     let entries = [
         (commands::HELP, msg.cmd_help_desc),
@@ -30,7 +39,10 @@ pub(crate) fn build_embed(language: Language, guild_id: Option<GuildId>) -> Crea
         .collect::<Vec<_>>()
         .join("\n");
 
-    CreateEmbed::new().title(msg.help_title).description(body)
+    EmbedBuilder::new()
+        .title(msg.help_title)
+        .description(body)
+        .build()
 }
 
 #[cfg(test)]
@@ -40,8 +52,7 @@ mod tests {
     #[test]
     fn build_embed_lists_every_command() {
         let embed = build_embed(Language::En, None);
-        let value = serenity::json::to_value(embed).expect("embed serializes");
-        let description = value["description"].as_str().expect("description present");
+        let description = embed.description.expect("description present");
         // No registration runs in tests, so mentions fall back to plain `/name`.
         for name in [
             commands::HELP,

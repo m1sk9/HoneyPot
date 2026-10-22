@@ -11,32 +11,42 @@
 
 use crate::discord::commands;
 use crate::discord::handler;
+use crate::error::HoneyPotError;
 use crate::i18n::{Language, Messages};
 use crate::settings::{GuildConfig, HoneyPotConfig};
-use serenity::all::{
-    ChannelId, CommandInteraction, Context, CreateEmbed, CreateInteractionResponse,
-    CreateInteractionResponseMessage, EditInteractionResponse, Mentionable, PartialGuild,
-    Permissions, RoleId, UserId,
+use std::collections::HashMap;
+use std::fmt::Display;
+use twilight_http::Client;
+use twilight_mention::Mention;
+use twilight_mention::fmt::MentionFormat;
+use twilight_model::application::interaction::Interaction;
+use twilight_model::channel::message::Embed;
+use twilight_model::guild::{Guild, Permissions, Role};
+use twilight_model::id::{
+    Id,
+    marker::{ChannelMarker, RoleMarker, UserMarker},
 };
+use twilight_util::builder::embed::EmbedBuilder;
 
-pub(super) async fn run(ctx: &Context, command: &CommandInteraction) {
-    let language = commands::language_for(command.guild_id);
+pub(super) async fn run(http: &Client, interaction: &Interaction) {
+    let language = commands::language_for(interaction.guild_id);
     let msg = language.messages();
 
-    if !commands::has_manage_guild(command) {
-        commands::respond_text(ctx, command, msg.cmd_perm_needed_manage).await;
+    if !commands::has_manage_guild(interaction) {
+        commands::respond_text(http, interaction, msg.cmd_perm_needed_manage).await;
         return;
     }
 
-    let Some(guild_id) = command.guild_id else {
-        commands::respond_text(ctx, command, msg.cmd_guild_only).await;
+    let Some(guild_id) = interaction.guild_id else {
+        commands::respond_text(http, interaction, msg.cmd_guild_only).await;
         return;
     };
     let Some(config) = HoneyPotConfig::get().guild(guild_id) else {
-        let embed = CreateEmbed::new()
+        let embed = EmbedBuilder::new()
             .title(msg.doctor_title)
-            .description(msg.doctor_not_configured);
-        commands::respond_embed(ctx, command, embed).await;
+            .description(msg.doctor_not_configured)
+            .build();
+        commands::respond_embed(http, interaction, embed).await;
         return;
     };
     let Some(bot_id) = handler::bot_user_id() else {
@@ -47,21 +57,19 @@ pub(super) async fn run(ctx: &Context, command: &CommandInteraction) {
     // Acknowledge up front: the checks below hit the API three times, which can
     // exceed Discord's 3-second initial-response deadline. After deferring, the
     // reply is delivered by editing the deferred response.
-    let defer =
-        CreateInteractionResponse::Defer(CreateInteractionResponseMessage::new().ephemeral(true));
-    if let Err(error) = command.create_response(&ctx.http, defer).await {
+    if let Err(error) = commands::defer_ephemeral(http, interaction).await {
         tracing::error!(%error, %guild_id, "doctor: failed to defer response");
         return;
     }
 
     // Independent fetches, run concurrently. Threads are fetched separately
-    // because `channels()` omits them, which would otherwise report a honeypot
-    // or log channel that is a thread as missing.
+    // because the guild channel list omits them, which would otherwise report a
+    // honeypot or log channel that is a thread as missing.
     let (guild, bot_member, channels, threads) = tokio::join!(
-        guild_id.to_partial_guild(&ctx.http),
-        guild_id.member(&ctx.http, bot_id),
-        guild_id.channels(&ctx.http),
-        guild_id.get_active_threads(&ctx.http),
+        async { Ok::<_, HoneyPotError>(http.guild(guild_id).await?.model().await?) },
+        async { Ok::<_, HoneyPotError>(http.guild_member(guild_id, bot_id).await?.model().await?) },
+        async { Ok::<_, HoneyPotError>(http.guild_channels(guild_id).await?.models().await?) },
+        async { Ok::<_, HoneyPotError>(http.active_threads(guild_id).await?.model().await?) },
     );
     let (guild, bot_member, channels) = match (guild, bot_member, channels) {
         (Ok(guild), Ok(member), Ok(channels)) => (guild, member, channels),
@@ -73,12 +81,13 @@ pub(super) async fn run(ctx: &Context, command: &CommandInteraction) {
                 channels_err = channels.is_err(),
                 "doctor: failed to fetch guild data"
             );
-            edit_text(ctx, command, msg.doctor_failed).await;
+            edit_text(http, interaction, msg.doctor_failed).await;
             return;
         }
     };
 
-    let mut channel_ids: Vec<ChannelId> = channels.into_keys().collect();
+    let mut channel_ids: Vec<Id<ChannelMarker>> =
+        channels.into_iter().map(|channel| channel.id).collect();
     // A failed thread fetch is non-fatal: fall back to non-thread channels only.
     match threads {
         Ok(threads) => channel_ids.extend(threads.threads.into_iter().map(|thread| thread.id)),
@@ -86,21 +95,19 @@ pub(super) async fn run(ctx: &Context, command: &CommandInteraction) {
     }
 
     let findings = collect_findings(config, &guild, &bot_member.roles, &channel_ids, bot_id);
-    edit_embed(ctx, command, build_embed(&findings, language)).await;
+    edit_embed(http, interaction, build_embed(&findings, language)).await;
 }
 
 /// Replaces the deferred response with an embed, logging any failure.
-async fn edit_embed(ctx: &Context, command: &CommandInteraction, embed: CreateEmbed) {
-    let edit = EditInteractionResponse::new().embed(embed);
-    if let Err(error) = command.edit_response(&ctx.http, edit).await {
+async fn edit_embed(http: &Client, interaction: &Interaction, embed: Embed) {
+    if let Err(error) = commands::edit_response_embed(http, interaction, embed).await {
         tracing::error!(%error, "doctor: failed to edit response");
     }
 }
 
 /// Replaces the deferred response with a text line, logging any failure.
-async fn edit_text(ctx: &Context, command: &CommandInteraction, content: &str) {
-    let edit = EditInteractionResponse::new().content(content);
-    if let Err(error) = command.edit_response(&ctx.http, edit).await {
+async fn edit_text(http: &Client, interaction: &Interaction, content: &str) {
+    if let Err(error) = commands::edit_response_text(http, interaction, content).await {
         tracing::error!(%error, "doctor: failed to edit response");
     }
 }
@@ -113,56 +120,59 @@ pub(crate) struct Findings {
     /// Whether the bot can ban members in the guild.
     ban_ok: bool,
     /// Configured honeypot roles (shown as a count and mention list).
-    honeypot_roles: Vec<RoleId>,
+    honeypot_roles: Vec<Id<RoleMarker>>,
     /// Configured role IDs absent from the guild.
-    missing_roles: Vec<RoleId>,
+    missing_roles: Vec<Id<RoleMarker>>,
     /// Configured honeypot channels (shown as a count and mention list).
-    honeypot_channels: Vec<ChannelId>,
+    honeypot_channels: Vec<Id<ChannelMarker>>,
     /// Configured channel IDs absent from the guild.
-    missing_channels: Vec<ChannelId>,
+    missing_channels: Vec<Id<ChannelMarker>>,
     /// The configured log channel.
-    log_channel: ChannelId,
+    log_channel: Id<ChannelMarker>,
     /// Whether the log channel exists in the guild.
     log_present: bool,
     /// Ordinary roles at or above the bot's role — these break the honeypot.
-    offending_blocking: Vec<RoleId>,
+    offending_blocking: Vec<Id<RoleMarker>>,
     /// Privileged or bot roles at or above the bot's role — benign but noted.
-    offending_privileged: Vec<RoleId>,
+    offending_privileged: Vec<Id<RoleMarker>>,
 }
+
+/// The guild's roles keyed by id, for repeated lookups.
+type RoleIndex<'a> = HashMap<Id<RoleMarker>, &'a Role>;
 
 /// Extracts the check results from the fetched guild data (no HTTP, no I/O).
 fn collect_findings(
     config: &GuildConfig,
-    guild: &PartialGuild,
-    bot_roles: &[RoleId],
-    channels: &[ChannelId],
-    bot_id: UserId,
+    guild: &Guild,
+    bot_roles: &[Id<RoleMarker>],
+    channels: &[Id<ChannelMarker>],
+    bot_id: Id<UserMarker>,
 ) -> Findings {
-    let everyone = RoleId::new(guild.id.get());
-    let everyone_perms = role_permissions(guild, everyone);
+    let roles: RoleIndex<'_> = guild.roles.iter().map(|role| (role.id, role)).collect();
+    let everyone = guild.id.cast::<RoleMarker>();
+    let everyone_perms = role_permissions(&roles, everyone);
     let bot_perms: Vec<Permissions> = bot_roles
         .iter()
-        .map(|id| role_permissions(guild, *id))
+        .map(|id| role_permissions(&roles, *id))
         .collect();
 
-    let present_roles: Vec<RoleId> = guild.roles.keys().copied().collect();
+    let present_roles: Vec<Id<RoleMarker>> = roles.keys().copied().collect();
 
-    let bot_highest = highest_position(&role_positions(guild, bot_roles));
-    let honeypot_positions: Vec<(RoleId, u16)> = config
+    let bot_highest = highest_position(&role_positions(&roles, bot_roles));
+    let honeypot_positions: Vec<(Id<RoleMarker>, i64)> = config
         .honeypot_role_ids
         .iter()
-        .filter_map(|id| guild.roles.get(id).map(|role| (*id, role.position)))
+        .filter_map(|id| roles.get(id).map(|role| (*id, role.position)))
         .collect();
 
     // Roles above the bot are split: a privileged/bot role sitting high is
     // expected (and can't be a real spam target), so it is a benign notice rather
     // than a honeypot-breaking warning.
-    let (offending_privileged, offending_blocking): (Vec<RoleId>, Vec<RoleId>) =
+    let (offending_privileged, offending_blocking): (Vec<Id<RoleMarker>>, Vec<Id<RoleMarker>>) =
         roles_at_or_above(bot_highest, &honeypot_positions)
             .into_iter()
             .partition(|id| {
-                guild
-                    .roles
+                roles
                     .get(id)
                     .is_some_and(|role| is_privileged_role(role.permissions, role.managed))
             });
@@ -188,27 +198,28 @@ pub(crate) fn preview_findings() -> Findings {
     Findings {
         ban_ok: true,
         honeypot_roles: vec![
-            RoleId::new(1_234_567_890_123_456_789),
-            RoleId::new(1_234_567_890_123_456_790),
+            Id::new(1_234_567_890_123_456_789),
+            Id::new(1_234_567_890_123_456_790),
         ],
         missing_roles: Vec::new(),
-        honeypot_channels: vec![ChannelId::new(2_234_567_890_123_456_789)],
+        honeypot_channels: vec![Id::new(2_234_567_890_123_456_789)],
         missing_channels: Vec::new(),
-        log_channel: ChannelId::new(2_234_567_890_123_456_789),
+        log_channel: Id::new(2_234_567_890_123_456_789),
         log_present: true,
         // One ordinary role (a real problem) and one privileged role (benign), so
         // both role-order notices render.
-        offending_blocking: vec![RoleId::new(1_234_567_890_123_456_789)],
-        offending_privileged: vec![RoleId::new(1_234_567_890_123_456_790)],
+        offending_blocking: vec![Id::new(1_234_567_890_123_456_789)],
+        offending_privileged: vec![Id::new(1_234_567_890_123_456_790)],
     }
 }
 
 /// Builds the `/doctor` embed for `language` from `findings`.
-pub(crate) fn build_embed(findings: &Findings, language: Language) -> CreateEmbed {
+pub(crate) fn build_embed(findings: &Findings, language: Language) -> Embed {
     let msg = language.messages();
-    CreateEmbed::new()
+    EmbedBuilder::new()
         .title(msg.doctor_title)
         .description(report(findings, msg))
+        .build()
 }
 
 /// Renders the multi-line check report (pure).
@@ -284,20 +295,19 @@ fn report(findings: &Findings, msg: &Messages) -> String {
     lines.join("\n")
 }
 
-/// The permissions of role `id` in `guild`, or none when the role is absent.
-fn role_permissions(guild: &PartialGuild, id: RoleId) -> Permissions {
-    guild
-        .roles
+/// The permissions of role `id`, or none when the role is absent.
+fn role_permissions(roles: &RoleIndex<'_>, id: Id<RoleMarker>) -> Permissions {
+    roles
         .get(&id)
         .map(|role| role.permissions)
         .unwrap_or_else(Permissions::empty)
 }
 
-/// The positions of `role_ids` that exist in `guild`.
-fn role_positions(guild: &PartialGuild, role_ids: &[RoleId]) -> Vec<u16> {
+/// The positions of `role_ids` that exist in the guild.
+fn role_positions(roles: &RoleIndex<'_>, role_ids: &[Id<RoleMarker>]) -> Vec<i64> {
     role_ids
         .iter()
-        .filter_map(|id| guild.roles.get(id).map(|role| role.position))
+        .filter_map(|id| roles.get(id).map(|role| role.position))
         .collect()
 }
 
@@ -307,7 +317,10 @@ fn mark_line(mark: &str, label: &str) -> String {
 }
 
 /// Renders `label: count (mentions)`, or `label: 0` when there are none.
-fn labeled_ids<T: Mentionable>(label: &str, ids: &[T]) -> String {
+fn labeled_ids<T: Mention<T>>(label: &str, ids: &[T]) -> String
+where
+    MentionFormat<T>: Display,
+{
     if ids.is_empty() {
         format!("{label}: 0")
     } else {
@@ -316,7 +329,10 @@ fn labeled_ids<T: Mentionable>(label: &str, ids: &[T]) -> String {
 }
 
 /// Renders ids as a comma-separated list of Discord mentions.
-fn id_mentions<T: Mentionable>(ids: &[T]) -> String {
+fn id_mentions<T: Mention<T>>(ids: &[T]) -> String
+where
+    MentionFormat<T>: Display,
+{
     ids.iter()
         .map(|id| id.mention().to_string())
         .collect::<Vec<_>>()
@@ -336,12 +352,14 @@ fn join_ids<T: std::fmt::Display>(ids: &[T]) -> String {
 /// (Administrator or Manage Server) or is a managed (bot/integration) role, so
 /// sitting high is expected rather than a honeypot misconfiguration.
 fn is_privileged_role(permissions: Permissions, managed: bool) -> bool {
-    permissions.administrator() || permissions.manage_guild() || managed
+    permissions.contains(Permissions::ADMINISTRATOR)
+        || permissions.contains(Permissions::MANAGE_GUILD)
+        || managed
 }
 
 /// The highest role position among `positions`, or 0 (the `@everyone` floor)
 /// when empty.
-fn highest_position(positions: &[u16]) -> u16 {
+fn highest_position(positions: &[i64]) -> i64 {
     positions.iter().copied().max().unwrap_or(0)
 }
 
@@ -350,7 +368,7 @@ fn highest_position(positions: &[u16]) -> u16 {
 /// A holder of such a role outranks the bot, so the bot cannot ban them — the
 /// trap would fire but the ban would fail. Equal positions are treated as a
 /// conflict because Discord's tie-break (by id) is not something to rely on.
-fn roles_at_or_above(bot_highest: u16, honeypot: &[(RoleId, u16)]) -> Vec<RoleId> {
+fn roles_at_or_above(bot_highest: i64, honeypot: &[(Id<RoleMarker>, i64)]) -> Vec<Id<RoleMarker>> {
     honeypot
         .iter()
         .filter(|(_, position)| *position >= bot_highest)
@@ -384,15 +402,15 @@ fn effective_can_ban(
     let effective = role_permissions
         .iter()
         .fold(everyone, |acc, perms| acc | *perms);
-    effective.administrator() || effective.ban_members()
+    effective.contains(Permissions::ADMINISTRATOR) || effective.contains(Permissions::BAN_MEMBERS)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn role(id: u64, position: u16) -> (RoleId, u16) {
-        (RoleId::new(id), position)
+    fn role(id: u64, position: i64) -> (Id<RoleMarker>, i64) {
+        (Id::new(id), position)
     }
 
     #[test]
@@ -407,7 +425,10 @@ mod tests {
         // Bot's highest is 5: role 1 (below) is fine; roles 2 (tie) and 3 (above)
         // are conflicts.
         let offending = roles_at_or_above(5, &honeypot);
-        assert_eq!(offending, vec![RoleId::new(2), RoleId::new(3)]);
+        assert_eq!(
+            offending,
+            vec![Id::<RoleMarker>::new(2), Id::<RoleMarker>::new(3)]
+        );
     }
 
     #[test]
@@ -418,11 +439,15 @@ mod tests {
 
     #[test]
     fn missing_ids_reports_only_absent() {
-        let configured = [RoleId::new(1), RoleId::new(2), RoleId::new(3)];
-        let present = [RoleId::new(2)];
+        let configured = [
+            Id::<RoleMarker>::new(1),
+            Id::<RoleMarker>::new(2),
+            Id::<RoleMarker>::new(3),
+        ];
+        let present = [Id::<RoleMarker>::new(2)];
         assert_eq!(
             missing_ids(&configured, &present),
-            vec![RoleId::new(1), RoleId::new(3)]
+            vec![Id::<RoleMarker>::new(1), Id::<RoleMarker>::new(3)]
         );
     }
 
@@ -461,11 +486,11 @@ mod tests {
     fn healthy_findings() -> Findings {
         Findings {
             ban_ok: true,
-            honeypot_roles: vec![RoleId::new(1)],
+            honeypot_roles: vec![Id::<RoleMarker>::new(1)],
             missing_roles: Vec::new(),
-            honeypot_channels: vec![ChannelId::new(2)],
+            honeypot_channels: vec![Id::<ChannelMarker>::new(2)],
             missing_channels: Vec::new(),
-            log_channel: ChannelId::new(3),
+            log_channel: Id::<ChannelMarker>::new(3),
             log_present: true,
             offending_blocking: Vec::new(),
             offending_privileged: Vec::new(),
@@ -482,7 +507,7 @@ mod tests {
     fn report_warns_on_a_blocking_role_above_the_bot() {
         let msg = Language::En.messages();
         let findings = Findings {
-            offending_blocking: vec![RoleId::new(42)],
+            offending_blocking: vec![Id::<RoleMarker>::new(42)],
             ..healthy_findings()
         };
         let text = report(&findings, msg);
@@ -494,7 +519,7 @@ mod tests {
     fn report_treats_a_privileged_role_above_the_bot_as_a_benign_notice() {
         let msg = Language::En.messages();
         let findings = Findings {
-            offending_privileged: vec![RoleId::new(7)],
+            offending_privileged: vec![Id::<RoleMarker>::new(7)],
             ..healthy_findings()
         };
         let text = report(&findings, msg);
@@ -530,8 +555,8 @@ mod tests {
     fn report_lists_missing_role_and_channel_ids() {
         let msg = Language::En.messages();
         let findings = Findings {
-            missing_roles: vec![RoleId::new(9)],
-            missing_channels: vec![ChannelId::new(8)],
+            missing_roles: vec![Id::<RoleMarker>::new(9)],
+            missing_channels: vec![Id::<ChannelMarker>::new(8)],
             ..healthy_findings()
         };
         let text = report(&findings, msg);
@@ -553,26 +578,26 @@ mod tests {
 
     #[test]
     fn labeled_ids_renders_count_and_mentions_or_zero() {
-        assert_eq!(labeled_ids("Roles", &[RoleId::new(1)]), "Roles: 1 (<@&1>)");
-        assert_eq!(labeled_ids::<RoleId>("Roles", &[]), "Roles: 0");
+        assert_eq!(
+            labeled_ids("Roles", &[Id::<RoleMarker>::new(1)]),
+            "Roles: 1 (<@&1>)"
+        );
+        assert_eq!(labeled_ids::<Id<RoleMarker>>("Roles", &[]), "Roles: 0");
     }
 
     #[test]
     fn join_ids_backtick_wraps_each_id() {
-        assert_eq!(join_ids(&[RoleId::new(1), RoleId::new(2)]), "`1`, `2`");
+        assert_eq!(
+            join_ids(&[Id::<RoleMarker>::new(1), Id::<RoleMarker>::new(2)]),
+            "`1`, `2`"
+        );
     }
 
     #[test]
     fn build_embed_titles_and_describes_the_report() {
         let msg = Language::En.messages();
         let embed = build_embed(&healthy_findings(), Language::En);
-        let value = serenity::json::to_value(embed).expect("embed serializes");
-        assert_eq!(value["title"].as_str().unwrap(), msg.doctor_title);
-        assert!(
-            value["description"]
-                .as_str()
-                .unwrap()
-                .contains(msg.ban_perm_ok)
-        );
+        assert_eq!(embed.title.as_deref(), Some(msg.doctor_title));
+        assert!(embed.description.unwrap().contains(msg.ban_perm_ok));
     }
 }

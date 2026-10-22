@@ -16,15 +16,15 @@ description = "A Discord bot that automatically bans spam bots via honeypot role
 preview = []
 
 [dependencies]
-# `unstable_discord_api` is enabled only to expose `UserPublicFlags::SPAMMER`
-# (Discord's "likely spammer" mark, bit 20). serenity's bitflags deserializer
-# uses `from_bits_truncate`, so that bit is dropped from `User::public_flags`
-# unless the flag is defined — which it is only behind this feature. It surfaces
-# in the honeypot log embed's "Badges" field as a moderator decision aid.
-# Trade-off: this feature is unstable and its API may change across serenity
-# minor releases, so pin/verify serenity on upgrade.
-serenity = { version = "0.12.5", default-features = false, features = ["client", "gateway", "model", "rustls_backend", "unstable_discord_api"] }
-tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
+twilight-gateway = { version = "0.17.1", default-features = false, features = ["rustls-webpki-roots", "zstd"] }
+twilight-http = { version = "0.17.1", default-features = false, features = ["rustls-webpki-roots", "decompression"] }
+twilight-model = "0.17.1"
+twilight-util = { version = "0.17.0", features = ["builder", "snowflake"] }
+twilight-mention = "0.17.0"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+futures-util = { version = "0.3", default-features = false }
+serde_json = "1"
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "time"] }
 toml = "1.1.2"
 serde = { version = "1.0.228", features = ["derive"] }
 dotenvy = "0.15.7"

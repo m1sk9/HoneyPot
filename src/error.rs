@@ -29,16 +29,23 @@ pub enum HoneyPotError {
     /// not treated as an error).
     #[error("Failed to load .env file: {0}")]
     Dotenv(#[from] dotenvy::Error),
-    /// The Discord client returned an error.
+    /// The Discord HTTP client returned an error.
     ///
-    /// Boxed because `serenity::Error` is large; keeping it inline would bloat
-    /// every `Result<_, HoneyPotError>` (see clippy's `result_large_err`).
+    /// Boxed because `twilight_http::Error` is large; keeping it inline would
+    /// bloat every `Result<_, HoneyPotError>` (see clippy's `result_large_err`).
     #[error("Discord client error: {0}")]
-    Client(#[source] Box<serenity::Error>),
+    Client(#[source] Box<twilight_http::Error>),
+    /// A Discord HTTP response body could not be deserialized into its model.
+    #[error("Failed to decode Discord response: {0}")]
+    Decode(#[from] twilight_http::response::DeserializeBodyError),
+    /// The gateway closed the connection with a non-resumable close code (e.g.
+    /// an invalid token or disallowed privileged intents), so the shard stopped.
+    #[error("Gateway connection closed fatally; check the bot token and privileged intents")]
+    GatewayClosed,
 }
 
-impl From<serenity::Error> for HoneyPotError {
-    fn from(err: serenity::Error) -> Self {
+impl From<twilight_http::Error> for HoneyPotError {
+    fn from(err: twilight_http::Error) -> Self {
         HoneyPotError::Client(Box::new(err))
     }
 }

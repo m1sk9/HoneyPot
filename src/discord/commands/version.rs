@@ -6,7 +6,10 @@
 
 use crate::discord::commands;
 use crate::i18n::Language;
-use serenity::all::{CommandInteraction, Context, CreateEmbed};
+use twilight_http::Client;
+use twilight_model::application::interaction::Interaction;
+use twilight_model::channel::message::Embed;
+use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder};
 
 /// The build's commit hash, injected by `build.rs`.
 const BUILD_SHA: &str = env!("HONEYPOT_BUILD_SHA");
@@ -17,18 +20,19 @@ const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 /// Sentinel `build.rs` emits when it cannot resolve a commit hash.
 const UNKNOWN_SHA: &str = "unknown";
 
-pub(super) async fn run(ctx: &Context, command: &CommandInteraction) {
-    let language = commands::language_for(command.guild_id);
-    commands::respond_embed(ctx, command, build_embed(language)).await;
+pub(super) async fn run(http: &Client, interaction: &Interaction) {
+    let language = commands::language_for(interaction.guild_id);
+    commands::respond_embed(http, interaction, build_embed(language)).await;
 }
 
 /// Builds the version embed for `language`.
-pub(crate) fn build_embed(language: Language) -> CreateEmbed {
+pub(crate) fn build_embed(language: Language) -> Embed {
     let msg = language.messages();
-    CreateEmbed::new()
+    EmbedBuilder::new()
         .title(msg.version_title)
-        .field(msg.version_label, version_link(), true)
-        .field(msg.build_label, build_link(), true)
+        .field(EmbedFieldBuilder::new(msg.version_label, version_link()).inline())
+        .field(EmbedFieldBuilder::new(msg.build_label, build_link()).inline())
+        .build()
 }
 
 /// The version as a markdown link to its GitHub release tag.

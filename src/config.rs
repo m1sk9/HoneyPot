@@ -2,7 +2,7 @@
 //!
 //! This module owns the raw representation of `config.toml` as it appears on
 //! disk. IDs are stored as bare integers (`u64`) here; they are converted into
-//! serenity ID types in [`crate::settings`].
+//! twilight `Id` types in [`crate::settings`].
 
 use crate::error::HoneyPotError;
 use crate::i18n::Language;
