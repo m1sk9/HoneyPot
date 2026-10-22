@@ -1,15 +1,18 @@
 //! Global runtime settings for HoneyPot.
 //!
 //! The raw configuration loaded by [`crate::config`] is converted into
-//! serenity ID types and expanded into a `HashMap` keyed by [`GuildId`], so
+//! twilight `Id` types and expanded into a `HashMap` keyed by guild ID, so
 //! event handlers can look up a guild's honeypot configuration in O(1).
 
 use crate::config::{self, GuildConfigEntry};
 use crate::error::HoneyPotError;
 use crate::i18n::Language;
-use serenity::all::{ChannelId, GuildId, RoleId, UserId};
 use std::collections::HashMap;
 use std::sync::OnceLock;
+use twilight_model::id::{
+    Id,
+    marker::{ChannelMarker, GuildMarker, RoleMarker, UserMarker},
+};
 
 /// Global configuration instance.
 pub static SETTINGS: OnceLock<HoneyPotConfig> = OnceLock::new();
@@ -88,20 +91,20 @@ pub fn dry_run() -> bool {
 /// Runtime configuration for all guilds served by this deployment.
 #[derive(Debug)]
 pub struct HoneyPotConfig {
-    guilds: HashMap<GuildId, GuildConfig>,
+    guilds: HashMap<Id<GuildMarker>, GuildConfig>,
 }
 
-/// Honeypot configuration for a single guild, using serenity ID types.
+/// Honeypot configuration for a single guild, using twilight `Id` types.
 #[derive(Debug)]
 pub struct GuildConfig {
     /// Roles that trigger a ban when acquired.
-    pub honeypot_role_ids: Vec<RoleId>,
+    pub honeypot_role_ids: Vec<Id<RoleMarker>>,
     /// Channels that trigger a ban when a message is posted.
-    pub honeypot_channel_ids: Vec<ChannelId>,
+    pub honeypot_channel_ids: Vec<Id<ChannelMarker>>,
     /// Bot user IDs exempt from the honeypot (never flagged or banned).
-    pub trusted_bot_ids: Vec<UserId>,
+    pub trusted_bot_ids: Vec<Id<UserMarker>>,
     /// Channel where ban notifications are sent.
-    pub log_channel_id: ChannelId,
+    pub log_channel_id: Id<ChannelMarker>,
     /// Language for this guild's moderator-facing text.
     pub language: Language,
 }
@@ -109,18 +112,14 @@ pub struct GuildConfig {
 impl From<GuildConfigEntry> for GuildConfig {
     fn from(entry: GuildConfigEntry) -> Self {
         Self {
-            honeypot_role_ids: entry
-                .honeypot_role_ids
-                .into_iter()
-                .map(RoleId::new)
-                .collect(),
+            honeypot_role_ids: entry.honeypot_role_ids.into_iter().map(Id::new).collect(),
             honeypot_channel_ids: entry
                 .honeypot_channel_ids
                 .into_iter()
-                .map(ChannelId::new)
+                .map(Id::new)
                 .collect(),
-            trusted_bot_ids: entry.trusted_bot_ids.into_iter().map(UserId::new).collect(),
-            log_channel_id: ChannelId::new(entry.log_channel_id),
+            trusted_bot_ids: entry.trusted_bot_ids.into_iter().map(Id::new).collect(),
+            log_channel_id: Id::new(entry.log_channel_id),
             language: entry.language,
         }
     }
@@ -131,7 +130,7 @@ impl HoneyPotConfig {
     fn from_entries(entries: Vec<GuildConfigEntry>) -> Self {
         let guilds = entries
             .into_iter()
-            .map(|entry| (GuildId::new(entry.guild_id), GuildConfig::from(entry)))
+            .map(|entry| (Id::new(entry.guild_id), GuildConfig::from(entry)))
             .collect();
         Self { guilds }
     }
@@ -139,7 +138,7 @@ impl HoneyPotConfig {
     /// Initializes the global configuration.
     ///
     /// Reads the file at `HONEYPOT_CONFIG_PATH` (defaulting to `config.toml`),
-    /// converts it into serenity ID types, and stores it in [`SETTINGS`].
+    /// converts it into twilight `Id` types, and stores it in [`SETTINGS`].
     pub fn init() -> Result<(), HoneyPotError> {
         let path =
             std::env::var(CONFIG_PATH_ENV).unwrap_or_else(|_| DEFAULT_CONFIG_PATH.to_string());
@@ -162,12 +161,12 @@ impl HoneyPotConfig {
     }
 
     /// Returns the honeypot configuration for `guild_id`, if any.
-    pub fn guild(&self, guild_id: GuildId) -> Option<&GuildConfig> {
+    pub fn guild(&self, guild_id: Id<GuildMarker>) -> Option<&GuildConfig> {
         self.guilds.get(&guild_id)
     }
 
     /// Returns every configured guild's ID, for per-guild command registration.
-    pub fn guild_ids(&self) -> impl Iterator<Item = GuildId> + '_ {
+    pub fn guild_ids(&self) -> impl Iterator<Item = Id<GuildMarker>> + '_ {
         self.guilds.keys().copied()
     }
 }
@@ -190,30 +189,36 @@ mod tests {
     #[test]
     fn lookup_registered_guild() {
         let config = HoneyPotConfig::from_entries(vec![entry(100000000000000000)]);
-        let guild = config.guild(GuildId::new(100000000000000000)).unwrap();
+        let guild = config.guild(Id::new(100000000000000000)).unwrap();
         assert_eq!(
             guild.honeypot_role_ids,
-            vec![RoleId::new(200000000000000000)]
+            vec![Id::<RoleMarker>::new(200000000000000000)]
         );
         assert_eq!(
             guild.honeypot_channel_ids,
-            vec![ChannelId::new(300000000000000000)]
+            vec![Id::<ChannelMarker>::new(300000000000000000)]
         );
-        assert_eq!(guild.trusted_bot_ids, vec![UserId::new(500000000000000000)]);
-        assert_eq!(guild.log_channel_id, ChannelId::new(400000000000000000));
+        assert_eq!(
+            guild.trusted_bot_ids,
+            vec![Id::<UserMarker>::new(500000000000000000)]
+        );
+        assert_eq!(
+            guild.log_channel_id,
+            Id::<ChannelMarker>::new(400000000000000000)
+        );
     }
 
     #[test]
     fn lookup_unregistered_guild_returns_none() {
         let config = HoneyPotConfig::from_entries(vec![entry(100000000000000000)]);
-        assert!(config.guild(GuildId::new(999999999999999999)).is_none());
+        assert!(config.guild(Id::new(999999999999999999)).is_none());
     }
 
     #[test]
     fn from_entries_expands_all_guilds() {
         let config = HoneyPotConfig::from_entries(vec![entry(1), entry(2)]);
-        assert!(config.guild(GuildId::new(1)).is_some());
-        assert!(config.guild(GuildId::new(2)).is_some());
+        assert!(config.guild(Id::new(1)).is_some());
+        assert!(config.guild(Id::new(2)).is_some());
     }
 
     #[test]

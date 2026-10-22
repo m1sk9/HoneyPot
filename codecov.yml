@@ -17,11 +17,18 @@ coverage:
 comment:
   require_changes: false
 
-# `interaction.rs` is entirely a Discord HTTP boundary (button interaction
-# handling: unban calls and interaction responses), so none of it can be
-# exercised without a live connection. Its only pure logic — parsing the unban
-# button `custom_id` — lives in and is unit-tested from `ban.rs`. Excluding it
-# keeps the coverage signal meaningful. `ban.rs`/`handler.rs` are NOT ignored
-# because they still contain testable pure logic alongside their I/O.
+# These files are entirely a Discord I/O boundary, so none of them can be
+# exercised without a live connection; excluding them keeps the coverage signal
+# meaningful:
+# - `interaction.rs`: button handling (ban/unban calls and interaction
+#   responses). Its pure logic (`custom_id` parsing, embed builders) lives in
+#   and is unit-tested from `ban.rs`.
+# - `handler.rs`: gateway event dispatch into the ban paths.
+# - `main.rs`: process bootstrap and the gateway shard loop.
+# Files that mix testable pure logic with I/O (`ban.rs`, `commands.rs`, ...)
+# are NOT ignored: Codecov only ignores whole paths, and per-function exclusion
+# (`coverage(off)`) would need a nightly toolchain in CI.
 ignore:
   - "src/discord/interaction.rs"
+  - "src/discord/handler.rs"
+  - "src/main.rs"

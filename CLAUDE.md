@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-HoneyPot is a Discord bot (Rust, `serenity`) that automatically bans spam bots.
+HoneyPot is a Discord bot (Rust, `twilight`) that automatically bans spam bots.
 It watches for "honeypot" traps — configured roles that trigger a ban when
 acquired, and channels that trigger a ban when posted in — and acts on offenders.
 It is distributed as a Docker image; there is no CLI beyond the running daemon.
@@ -39,7 +39,8 @@ Requires a real Discord bot token and a live gateway connection.
 The bot needs the **`GUILD_MEMBERS`** and **`MESSAGE_CONTENT`** privileged
 intents (both enabled in the Discord Developer Portal) and the **Ban Members**
 and **View Audit Log** permissions in every moderated guild. If either intent is
-disabled the gateway refuses the connection. `MESSAGE_CONTENT` is requested so a
+disabled the gateway refuses the connection (a fatal close, so the process exits
+with `HoneyPotError::GatewayClosed`). `MESSAGE_CONTENT` is requested so a
 channel-triggered ban can log the offending message for moderator review; the
 content is only ever read to populate that log embed. **View Audit Log** lets the
 role path resolve who granted a honeypot role (see the account-type policy);
@@ -48,8 +49,8 @@ without it every role trigger falls back to manual review.
 ### Dry-run mode
 
 Set **`HONEYPOT_DRY_RUN=1`** (or `true`) to debug without a throwaway account.
-In dry-run the three destructive Discord calls (`ban_with_reason` in `execute_ban`
-and `confirm_bot_ban`, `unban` in `perform_unban`) are skipped and treated as
+In dry-run the three destructive Discord calls (`create_ban` in `execute_ban`
+and `confirm_bot_ban`, `delete_ban` in `perform_unban`) are skipped and treated as
 success, while detection, log-embed posting, buttons, the two-step confirmation,
 embed edits, and `HANDLED_BANS` claim/release all run for real. So you can trip a
 honeypot on your own account and watch the whole flow — the log embed carries a
@@ -61,15 +62,17 @@ startup via `settings::dry_run()`; a startup `warn!` line confirms it is active.
 The **`preview`** Cargo feature (off by default) swaps the daemon for a one-shot
 embed previewer. With it, `main`'s `run()` reads `HONEYPOT_PREVIEW_CHANNEL`, posts
 one message per log-embed variant *in each supported language* (built with the
-*real* builders, so previews can't drift) to that channel via REST, and exits —
-no config load, no gateway. The captions are language-tagged (`[EN]`/`[JA]`).
+*real* builders, so previews can't drift) to that channel via a standalone
+`twilight_http::Client` (REST only), and exits — no config load, no gateway. The
+captions are language-tagged (`[EN]`/`[JA]`).
 Run it with `cargo run --features preview`. Lives in `src/discord/preview.rs`;
 `main.rs` selects the preview vs. normal `run()` with `#[cfg(feature = "preview")]`
 (and allows dead code crate-wide under the feature, since the normal path is then
 uncompiled). To reach the previewer, `build_ban_embed`/`build_pending_embed`/
 `build_third_party_grant_embed` (ban.rs) and `resolved_embed`/
-`manually_banned_embed` (interaction.rs) are `pub(crate)`. None of this is
-compiled into the production image.
+`manually_banned_embed` (interaction.rs) are `pub(crate)`; the sample users come
+from `src/discord/fixtures.rs`. None of this is compiled into the production
+image.
 
 ## Architecture
 
@@ -79,12 +82,15 @@ handlers → ban module → Discord.
 - **`src/config.rs`** — raw `config.toml` representation. IDs are bare `u64`
   here (`GuildConfigEntry`), plus an optional `language` (defaults to `en`). Owns
   file loading/parsing only.
-- **`src/settings.rs`** — converts raw entries into `serenity` ID types and
-  stores them in a global `OnceLock<HoneyPotConfig>` keyed by `GuildId` for O(1)
+- **`src/settings.rs`** — converts raw entries into twilight `Id<…Marker>` types
+  and stores them in a global `OnceLock<HoneyPotConfig>` keyed by guild ID for O(1)
   lookup. `HoneyPotConfig::init()` is called once from `main`; `::get()` panics
   if called before init. Config path defaults to `config/config.toml`, overridable
   via `HONEYPOT_CONFIG_PATH`. Also owns `dry_run()` — the cached `HONEYPOT_DRY_RUN`
-  flag that the ban paths consult to skip the actual Discord ban/unban calls.
+  flag that the ban paths consult to skip the actual Discord ban/unban calls —
+  and `command_scope()`, the cached `HONEYPOT_COMMAND_SCOPE` (`guild` registers
+  slash commands only to the configured guilds, propagating instantly for
+  development; anything else, including unset, registers them globally).
   `GuildConfig` also carries the guild's `language` (see `src/i18n.rs`).
 - **`src/i18n.rs`** — per-guild localization for all moderator-facing text. The
   `Language` enum (`en`/`ja`, deserialized from the `language` config key,
@@ -95,12 +101,31 @@ handlers → ban module → Discord.
   `interaction.rs`; detection logic stays language-free. The audit-log ban reason
   is deliberately **not** localized (kept English via `BanTrigger::kind`).
 - **`src/main.rs`** — bootstraps `.env` (missing file is not an error), JSON
-  `tracing` logging (`RUST_LOG`, default `honeypot=info`), config, and the
-  serenity client with the four gateway intents.
-- **`src/discord/handler.rs`** — the `EventHandler`. Captures the bot's own
-  user ID on `ready` (guards against self-bans via `is_self`). `guild_member_update`
-  and `message` detect triggers and funnel through `act_on_trigger`, which routes
-  by account type (see below). `interaction_create` dispatches button clicks.
+  `tracing` logging (`RUST_LOG`, default `honeypot=info`), the rustls `ring`
+  crypto provider (twilight enables none; without it rustls panics), config, a
+  shared `twilight_http::Client`, and a single gateway `Shard` with the five
+  intents and the `Running vX.Y.Z` custom status. The shard is polled as a raw
+  message stream: each wanted event's JSON is parsed with
+  `twilight_gateway::parse` and handed, with the JSON text, to
+  `handler::handle` on its own `tokio::spawn`ed task (the role path sleeps
+  between audit-log polls and must not stall the shard). The stream ends only on
+  a fatal close, which `run` returns as `HoneyPotError::GatewayClosed`.
+- **`src/discord/handler.rs`** — gateway event dispatch (`handle`, filtered by
+  `WANTED_EVENTS`). Captures the bot's own user ID on `READY` (guards against
+  self-bans via `is_self`) and registers slash commands with the application ID
+  `READY` carries; interaction responses use each interaction's own
+  `application_id`. `GUILD_MEMBER_UPDATE`
+  and `MESSAGE_CREATE` detect triggers and funnel through `act_on_trigger`,
+  which routes by account type (see below). `INTERACTION_CREATE` dispatches
+  button clicks and slash commands.
+- **`src/discord/raw.rs`** — recovers the two account signals twilight-model
+  drops (`unusual_dm_activity_until`, and the "likely spammer" bit 20 of
+  `public_flags`, which `UserFlags` truncates) from the event's raw JSON. Pure
+  and unit-tested; each signal is parsed independently, and a payload that
+  doesn't match yields that signal's default (absent) rather than failing the
+  event. Removable once twilight-model models both.
+- **`src/discord/fixtures.rs`** (`cfg(test)` / `preview` only) — blank `User`
+  and `Embed` values, since twilight's models implement no `Default`.
 - **`src/discord/ban.rs`** — shared ban execution and the pure, unit-tested
   detection predicates (`newly_acquired_honeypot_role`, `is_honeypot_channel`,
   `find_role_grant_executor`, `classify_role_grant`). Also owns the audit-log
@@ -128,7 +153,7 @@ When a honeypot fires, `act_on_trigger` branches on the offender:
 
 ### Role-grant safeguard (role trigger only)
 
-A **role** trigger has a prior check, applied in `guild_member_update` before
+A **role** trigger has a prior check, applied in `on_member_update` before
 `act_on_trigger`. The trap is meant for a member who acquires the role
 *themselves* (onboarding / self-assign) — the path a spam bot takes — so the
 handler resolves the grantor via `resolve_role_grant_source` (audit log,
@@ -146,19 +171,22 @@ member as executor), and both are intended to fire — so the axis is
 self-assign vs. third-party, not onboarding vs. manual. `Unknown` deliberately
 holds for review (never auto-bans) so an unverifiable grant can't cause a false
 ban. The channel trigger has no such check: posting is always the offender's own
-act. The two review notices share `build_review_embed`/`build_review_message` and
-the same `uhp_ban` confirmation flow; only their title/description differ.
+act. The two review notices share `build_review_embed` and the same `uhp_ban`
+confirmation flow (the `Ban` button row from `review_action_row`); only their
+title/description differ.
 
 ### Two invariants worth knowing
 
-- **The serenity cache is disabled.** So `guild_member_update` fires for a
-  honeypot-role holder on *any* member update (nickname, timeout, …), and the
-  "old roles" set is usually unavailable. `newly_acquired_honeypot_role` handles
-  both: it diffs against old roles when present, otherwise falls back to
-  intersecting the full new role set with the honeypots. When editing role
-  detection, keep both paths correct.
+- **twilight has no cache; old roles are never available, so detection always
+  falls back to the intersection path.** `GUILD_MEMBER_UPDATE` fires for a
+  honeypot-role holder on *any* member update (nickname, timeout, …) and carries
+  no previous roles, so the handler always passes `None` to
+  `newly_acquired_honeypot_role`, which then intersects the full new role set
+  with the honeypots. Its old-roles diff path is unreachable today but kept (and
+  tested) so a future cache can supply old roles; keep both paths correct.
 - **`HANDLED_BANS` deduplicates by `(guild, user)`.** An offender can trip both
-  honeypot paths at once, or `guild_member_update` can fire repeatedly. Every ban
+  honeypot paths at once, or `GUILD_MEMBER_UPDATE` can fire repeatedly (and each
+  event runs on its own task, so these can race). Every ban
   path *claims* the pair first (`claim_ban`) and acts only on the first claim. A
   *failed* ban/notice releases the claim (`forget_ban`) so a later event retries;
   a successful unban also releases it so the user can be re-banned. Preserve this
