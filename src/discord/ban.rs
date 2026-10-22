@@ -1723,6 +1723,19 @@ mod tests {
     }
 
     #[test]
+    fn review_action_row_carries_danger_button_with_ban_id() {
+        let row = review_action_row(Id::new(123), Language::Ja);
+        assert_eq!(
+            row_buttons(&row),
+            vec![(
+                Some("uhp_ban:123"),
+                Some(Language::Ja.messages().btn_ban),
+                ButtonStyle::Danger
+            )]
+        );
+    }
+
+    #[test]
     fn confirm_rows_carry_confirm_and_cancel() {
         let msg = en();
         assert_eq!(

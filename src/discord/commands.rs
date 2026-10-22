@@ -341,6 +341,80 @@ mod tests {
     use super::*;
     use twilight_model::application::command::CommandOptionType;
 
+    /// A guild command interaction whose member carries `permissions`, or a
+    /// member-less one (as in a DM) when `None`.
+    fn interaction(permissions: Option<Permissions>) -> Interaction {
+        let member = permissions.map(|perms| {
+            serde_json::json!({
+                "user": {"id": "2", "username": "mod", "discriminator": "0", "avatar": null},
+                "roles": [],
+                "joined_at": "2020-01-01T00:00:00.000000+00:00",
+                "deaf": false,
+                "mute": false,
+                "flags": 0,
+                "permissions": perms.bits().to_string(),
+            })
+        });
+        serde_json::from_value(serde_json::json!({
+            "id": "1",
+            "application_id": "3",
+            "authorizing_integration_owners": {},
+            "entitlements": [],
+            "type": 2,
+            "token": "token",
+            "version": 1,
+            "guild_id": "4",
+            "member": member,
+            "data": {"id": "5", "name": WHOIS, "type": 1},
+        }))
+        .expect("valid interaction fixture")
+    }
+
+    #[test]
+    fn has_ban_permission_requires_ban_members() {
+        assert!(has_ban_permission(&interaction(Some(
+            Permissions::BAN_MEMBERS | Permissions::SEND_MESSAGES
+        ))));
+        assert!(!has_ban_permission(&interaction(Some(
+            Permissions::KICK_MEMBERS
+        ))));
+        assert!(!has_ban_permission(&interaction(None)));
+    }
+
+    #[test]
+    fn has_manage_guild_accepts_manage_guild_or_administrator() {
+        assert!(has_manage_guild(&interaction(Some(
+            Permissions::MANAGE_GUILD
+        ))));
+        assert!(has_manage_guild(&interaction(Some(
+            Permissions::ADMINISTRATOR
+        ))));
+        assert!(!has_manage_guild(&interaction(Some(
+            Permissions::BAN_MEMBERS
+        ))));
+        assert!(!has_manage_guild(&interaction(None)));
+    }
+
+    #[test]
+    fn command_name_reads_the_invoked_command() {
+        assert_eq!(command_name(&interaction(None)), WHOIS);
+        let mut without_data = interaction(None);
+        without_data.data = None;
+        assert_eq!(command_name(&without_data), "");
+    }
+
+    #[test]
+    fn ephemeral_sets_the_ephemeral_flag_on_a_message_response() {
+        let response = ephemeral(InteractionResponseDataBuilder::new().content("hi"));
+        assert_eq!(
+            response.kind,
+            InteractionResponseType::ChannelMessageWithSource
+        );
+        let data = response.data.expect("response carries data");
+        assert_eq!(data.flags, Some(MessageFlags::EPHEMERAL));
+        assert_eq!(data.content.as_deref(), Some("hi"));
+    }
+
     #[test]
     fn command_names_are_lowercase_and_unique() {
         let names = [HELP, VERSION, PING, WHOIS, DOCTOR];
