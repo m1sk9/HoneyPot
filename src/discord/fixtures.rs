@@ -42,6 +42,7 @@ pub(crate) fn embed() -> Embed {
         color: None,
         description: None,
         fields: Vec::new(),
+        flags: None,
         footer: None,
         image: None,
         kind: "rich".to_string(),

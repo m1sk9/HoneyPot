@@ -43,8 +43,8 @@ use twilight_model::id::{
     Id,
     marker::{ApplicationMarker, CommandMarker, GuildMarker},
 };
-use twilight_util::builder::InteractionResponseDataBuilder;
 use twilight_util::builder::command::{CommandBuilder, UserBuilder};
+use twilight_util::builder::interaction_response::ChannelMessageBuilder;
 
 /// `/help` command name.
 pub(crate) const HELP: &str = "help";
@@ -266,11 +266,8 @@ fn command_name(interaction: &Interaction) -> &str {
 }
 
 /// An ephemeral initial response built from `data`.
-pub(crate) fn ephemeral(data: InteractionResponseDataBuilder) -> InteractionResponse {
-    InteractionResponse {
-        kind: InteractionResponseType::ChannelMessageWithSource,
-        data: Some(data.flags(MessageFlags::EPHEMERAL).build()),
-    }
+pub(crate) fn ephemeral(data: ChannelMessageBuilder) -> InteractionResponse {
+    data.flags(MessageFlags::EPHEMERAL).build()
 }
 
 /// Sends an ephemeral embed reply, logging any failure.
@@ -278,7 +275,7 @@ pub(crate) fn ephemeral(data: InteractionResponseDataBuilder) -> InteractionResp
 /// Command replies are ephemeral: they are informational and would otherwise
 /// clutter the invoking channel.
 pub(crate) async fn respond_embed(http: &Client, interaction: &Interaction, embed: Embed) {
-    let response = ephemeral(InteractionResponseDataBuilder::new().embeds([embed]));
+    let response = ephemeral(ChannelMessageBuilder::new().embeds([embed]));
     if let Err(error) = interaction::create_response(http, interaction, &response).await {
         tracing::error!(%error, command = command_name(interaction), "failed to respond to command");
     }
@@ -286,7 +283,7 @@ pub(crate) async fn respond_embed(http: &Client, interaction: &Interaction, embe
 
 /// Sends an ephemeral text reply, logging any failure.
 pub(crate) async fn respond_text(http: &Client, interaction: &Interaction, content: &str) {
-    let response = ephemeral(InteractionResponseDataBuilder::new().content(content));
+    let response = ephemeral(ChannelMessageBuilder::new().content(content));
     if let Err(error) = interaction::create_response(http, interaction, &response).await {
         tracing::error!(%error, command = command_name(interaction), "failed to respond to command");
     }
@@ -298,15 +295,15 @@ pub(crate) async fn defer_ephemeral(
     http: &Client,
     interaction: &Interaction,
 ) -> Result<(), crate::error::HoneyPotError> {
-    let response = InteractionResponse {
+    interaction::create_response(http, interaction, &deferred_ephemeral()).await
+}
+
+/// An ephemeral deferred response: [`ephemeral`] with no content yet.
+fn deferred_ephemeral() -> InteractionResponse {
+    InteractionResponse {
         kind: InteractionResponseType::DeferredChannelMessageWithSource,
-        data: Some(
-            InteractionResponseDataBuilder::new()
-                .flags(MessageFlags::EPHEMERAL)
-                .build(),
-        ),
-    };
-    interaction::create_response(http, interaction, &response).await
+        ..ephemeral(ChannelMessageBuilder::new())
+    }
 }
 
 /// Replaces a deferred response with `embed`.
@@ -358,6 +355,7 @@ mod tests {
         serde_json::from_value(serde_json::json!({
             "id": "1",
             "application_id": "3",
+            "attachment_size_limit": 8388608,
             "authorizing_integration_owners": {},
             "entitlements": [],
             "type": 2,
@@ -405,7 +403,7 @@ mod tests {
 
     #[test]
     fn ephemeral_sets_the_ephemeral_flag_on_a_message_response() {
-        let response = ephemeral(InteractionResponseDataBuilder::new().content("hi"));
+        let response = ephemeral(ChannelMessageBuilder::new().content("hi"));
         assert_eq!(
             response.kind,
             InteractionResponseType::ChannelMessageWithSource
@@ -413,6 +411,18 @@ mod tests {
         let data = response.data.expect("response carries data");
         assert_eq!(data.flags, Some(MessageFlags::EPHEMERAL));
         assert_eq!(data.content.as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn deferred_ephemeral_is_an_ephemeral_deferred_message_response() {
+        let response = deferred_ephemeral();
+        assert_eq!(
+            response.kind,
+            InteractionResponseType::DeferredChannelMessageWithSource
+        );
+        let data = response.data.expect("response carries data");
+        assert_eq!(data.flags, Some(MessageFlags::EPHEMERAL));
+        assert_eq!(data.content, None);
     }
 
     #[test]
