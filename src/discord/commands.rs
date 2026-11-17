@@ -38,9 +38,7 @@ use twilight_model::application::interaction::{
 };
 use twilight_model::channel::message::{Embed, MessageFlags};
 use twilight_model::guild::Permissions;
-use twilight_model::http::interaction::{
-    InteractionResponse, InteractionResponseData, InteractionResponseType,
-};
+use twilight_model::http::interaction::{InteractionResponse, InteractionResponseType};
 use twilight_model::id::{
     Id,
     marker::{ApplicationMarker, CommandMarker, GuildMarker},
@@ -297,14 +295,15 @@ pub(crate) async fn defer_ephemeral(
     http: &Client,
     interaction: &Interaction,
 ) -> Result<(), crate::error::HoneyPotError> {
-    let response = InteractionResponse {
+    interaction::create_response(http, interaction, &deferred_ephemeral()).await
+}
+
+/// An ephemeral deferred response: [`ephemeral`] with no content yet.
+fn deferred_ephemeral() -> InteractionResponse {
+    InteractionResponse {
         kind: InteractionResponseType::DeferredChannelMessageWithSource,
-        data: Some(InteractionResponseData {
-            flags: Some(MessageFlags::EPHEMERAL),
-            ..Default::default()
-        }),
-    };
-    interaction::create_response(http, interaction, &response).await
+        ..ephemeral(ChannelMessageBuilder::new())
+    }
 }
 
 /// Replaces a deferred response with `embed`.
@@ -412,6 +411,18 @@ mod tests {
         let data = response.data.expect("response carries data");
         assert_eq!(data.flags, Some(MessageFlags::EPHEMERAL));
         assert_eq!(data.content.as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn deferred_ephemeral_is_an_ephemeral_deferred_message_response() {
+        let response = deferred_ephemeral();
+        assert_eq!(
+            response.kind,
+            InteractionResponseType::DeferredChannelMessageWithSource
+        );
+        let data = response.data.expect("response carries data");
+        assert_eq!(data.flags, Some(MessageFlags::EPHEMERAL));
+        assert_eq!(data.content, None);
     }
 
     #[test]

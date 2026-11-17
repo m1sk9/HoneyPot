@@ -436,6 +436,7 @@ mod tests {
     use super::*;
     use crate::discord::fixtures;
     use twilight_model::channel::message::embed::EmbedField;
+    use twilight_model::http::interaction::InteractionResponseType;
 
     /// Builds an embed carrying the given field names (values are placeholders).
     fn embed_with_fields(names: &[&str]) -> Embed {
@@ -530,5 +531,14 @@ mod tests {
             vec![msg.field_user, msg.field_unbanned_by]
         );
         assert_eq!(embed.fields[0].value, "<@1>");
+    }
+
+    #[test]
+    fn replace_prompt_updates_the_message_and_clears_its_buttons() {
+        let response = replace_prompt("done");
+        assert_eq!(response.kind, InteractionResponseType::UpdateMessage);
+        let data = response.data.expect("response carries data");
+        assert_eq!(data.content.as_deref(), Some("done"));
+        assert_eq!(data.components, Some(Vec::new()));
     }
 }
