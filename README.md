@@ -15,12 +15,10 @@ docker pull ghcr.io/m1sk9/honeypot:latest
 docker pull ghcr.io/m1sk9/honeypot:v0
 
 # Specific Release
-docker pull ghcr.io/m1sk9/honeypot:v0.1.0
+docker pull ghcr.io/m1sk9/honeypot:v0.7.0
 ```
 
 [_API Support: requires Discord API v10_](https://discord.com/developers/docs/reference#api-versioning)
-
-[HoneyPot API Documentation](https://m1sk9.github.io/HoneyPot/)
 
 ## Features
 
