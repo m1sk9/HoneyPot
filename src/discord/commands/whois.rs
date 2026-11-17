@@ -153,8 +153,7 @@ fn badge_names(flags: UserFlags) -> Vec<&'static str> {
             UserFlags::VERIFIED_DEVELOPER,
             "Early Verified Bot Developer",
         ),
-        // Bit 18: twilight names it after Discord's later rename of the program.
-        (UserFlags::MODERATOR_PROGRAMS_ALUMNI, "Certified Moderator"),
+        (UserFlags::CERTIFIED_MODERATOR, "Certified Moderator"),
         (UserFlags::VERIFIED_BOT, "Verified Bot"),
         (UserFlags::ACTIVE_DEVELOPER, "Active Developer"),
     ]

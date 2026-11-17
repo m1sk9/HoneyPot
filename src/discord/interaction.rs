@@ -22,14 +22,14 @@ use twilight_mention::Mention;
 use twilight_model::application::interaction::{Interaction, InteractionData};
 use twilight_model::channel::Message;
 use twilight_model::channel::message::{Component, Embed};
-use twilight_model::http::interaction::{InteractionResponse, InteractionResponseType};
+use twilight_model::http::interaction::InteractionResponse;
 use twilight_model::id::{
     Id,
     marker::{ChannelMarker, GuildMarker, MessageMarker, UserMarker},
 };
 use twilight_model::user::User;
-use twilight_util::builder::InteractionResponseDataBuilder;
 use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder};
+use twilight_util::builder::interaction_response::{ChannelMessageBuilder, UpdateMessageBuilder};
 
 /// Handles a component interaction, dispatching the honeypot log buttons.
 ///
@@ -267,7 +267,7 @@ async fn ack_confirmation(http: &Client, interaction: &Interaction, content: &st
 /// An ephemeral reply carrying `content` and `components`.
 fn ephemeral(content: impl Into<String>, components: Vec<Component>) -> InteractionResponse {
     commands::ephemeral(
-        InteractionResponseDataBuilder::new()
+        ChannelMessageBuilder::new()
             .content(content)
             .components(components),
     )
@@ -275,15 +275,10 @@ fn ephemeral(content: impl Into<String>, components: Vec<Component>) -> Interact
 
 /// Rewrites the clicked ephemeral prompt to `content`, dropping its buttons.
 fn replace_prompt(content: &str) -> InteractionResponse {
-    InteractionResponse {
-        kind: InteractionResponseType::UpdateMessage,
-        data: Some(
-            InteractionResponseDataBuilder::new()
-                .content(content)
-                .components(Vec::new())
-                .build(),
-        ),
-    }
+    UpdateMessageBuilder::new()
+        .content(content)
+        .components(Vec::<Component>::new())
+        .build()
 }
 
 /// Sends `response` as the initial response to `interaction`.

@@ -38,13 +38,15 @@ use twilight_model::application::interaction::{
 };
 use twilight_model::channel::message::{Embed, MessageFlags};
 use twilight_model::guild::Permissions;
-use twilight_model::http::interaction::{InteractionResponse, InteractionResponseType};
+use twilight_model::http::interaction::{
+    InteractionResponse, InteractionResponseData, InteractionResponseType,
+};
 use twilight_model::id::{
     Id,
     marker::{ApplicationMarker, CommandMarker, GuildMarker},
 };
-use twilight_util::builder::InteractionResponseDataBuilder;
 use twilight_util::builder::command::{CommandBuilder, UserBuilder};
+use twilight_util::builder::interaction_response::ChannelMessageBuilder;
 
 /// `/help` command name.
 pub(crate) const HELP: &str = "help";
@@ -266,11 +268,8 @@ fn command_name(interaction: &Interaction) -> &str {
 }
 
 /// An ephemeral initial response built from `data`.
-pub(crate) fn ephemeral(data: InteractionResponseDataBuilder) -> InteractionResponse {
-    InteractionResponse {
-        kind: InteractionResponseType::ChannelMessageWithSource,
-        data: Some(data.flags(MessageFlags::EPHEMERAL).build()),
-    }
+pub(crate) fn ephemeral(data: ChannelMessageBuilder) -> InteractionResponse {
+    data.flags(MessageFlags::EPHEMERAL).build()
 }
 
 /// Sends an ephemeral embed reply, logging any failure.
@@ -278,7 +277,7 @@ pub(crate) fn ephemeral(data: InteractionResponseDataBuilder) -> InteractionResp
 /// Command replies are ephemeral: they are informational and would otherwise
 /// clutter the invoking channel.
 pub(crate) async fn respond_embed(http: &Client, interaction: &Interaction, embed: Embed) {
-    let response = ephemeral(InteractionResponseDataBuilder::new().embeds([embed]));
+    let response = ephemeral(ChannelMessageBuilder::new().embeds([embed]));
     if let Err(error) = interaction::create_response(http, interaction, &response).await {
         tracing::error!(%error, command = command_name(interaction), "failed to respond to command");
     }
@@ -286,7 +285,7 @@ pub(crate) async fn respond_embed(http: &Client, interaction: &Interaction, embe
 
 /// Sends an ephemeral text reply, logging any failure.
 pub(crate) async fn respond_text(http: &Client, interaction: &Interaction, content: &str) {
-    let response = ephemeral(InteractionResponseDataBuilder::new().content(content));
+    let response = ephemeral(ChannelMessageBuilder::new().content(content));
     if let Err(error) = interaction::create_response(http, interaction, &response).await {
         tracing::error!(%error, command = command_name(interaction), "failed to respond to command");
     }
@@ -300,11 +299,10 @@ pub(crate) async fn defer_ephemeral(
 ) -> Result<(), crate::error::HoneyPotError> {
     let response = InteractionResponse {
         kind: InteractionResponseType::DeferredChannelMessageWithSource,
-        data: Some(
-            InteractionResponseDataBuilder::new()
-                .flags(MessageFlags::EPHEMERAL)
-                .build(),
-        ),
+        data: Some(InteractionResponseData {
+            flags: Some(MessageFlags::EPHEMERAL),
+            ..Default::default()
+        }),
     };
     interaction::create_response(http, interaction, &response).await
 }
@@ -406,7 +404,7 @@ mod tests {
 
     #[test]
     fn ephemeral_sets_the_ephemeral_flag_on_a_message_response() {
-        let response = ephemeral(InteractionResponseDataBuilder::new().content("hi"));
+        let response = ephemeral(ChannelMessageBuilder::new().content("hi"));
         assert_eq!(
             response.kind,
             InteractionResponseType::ChannelMessageWithSource
