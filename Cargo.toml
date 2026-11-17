@@ -16,11 +16,11 @@ description = "A Discord bot that automatically bans spam bots via honeypot role
 preview = []
 
 [dependencies]
-twilight-gateway = { version = "0.17.1", default-features = false, features = ["rustls-webpki-roots", "zstd"] }
-twilight-http = { version = "0.17.1", default-features = false, features = ["rustls-webpki-roots", "decompression"] }
-twilight-model = "0.17.1"
-twilight-util = { version = "0.17.0", features = ["builder", "snowflake"] }
-twilight-mention = "0.17.0"
+twilight-gateway = { version = "0.18.0", default-features = false, features = ["rustls-webpki-roots", "zstd"] }
+twilight-http = { version = "0.18.0", default-features = false, features = ["rustls-webpki-roots", "decompression"] }
+twilight-model = "0.18.0"
+twilight-util = { version = "0.18.0", features = ["builder", "snowflake"] }
+twilight-mention = "0.18.0"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 futures-util = { version = "0.3", default-features = false }
 serde_json = "1"

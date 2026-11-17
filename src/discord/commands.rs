@@ -358,6 +358,7 @@ mod tests {
         serde_json::from_value(serde_json::json!({
             "id": "1",
             "application_id": "3",
+            "attachment_size_limit": 8388608,
             "authorizing_integration_owners": {},
             "entitlements": [],
             "type": 2,

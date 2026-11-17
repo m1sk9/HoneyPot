@@ -64,7 +64,7 @@ pub async fn handle(http: &Client, event: Event, raw: &str) {
     match event {
         Event::Ready(ready) => on_ready(http, &ready).await,
         Event::MemberUpdate(update) => on_member_update(http, *update, raw).await,
-        Event::MessageCreate(message) => on_message(http, message.0, raw).await,
+        Event::MessageCreate(message) => on_message(http, message.message, raw).await,
         Event::InteractionCreate(event) => match event.kind {
             InteractionType::MessageComponent => interaction::handle_component(http, &event).await,
             InteractionType::ApplicationCommand => commands::dispatch(http, &event, raw).await,
