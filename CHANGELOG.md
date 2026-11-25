@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.0](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.6.2...honeypot-v0.7.0) (2026-11-25)
+
+
+### Features
+
+* **deps:** update twilight crates to 0.18.0 ([#71](https://github.com/m1sk9/HoneyPot/issues/71)) ([ae79cfa](https://github.com/m1sk9/HoneyPot/commit/ae79cfab495018308fff84c01278c6b3edb00faf))
+
+
+### Miscellaneous
+
+* **deps:** update rust crate rustls to v0.23.46 ([#61](https://github.com/m1sk9/HoneyPot/issues/61)) ([6889111](https://github.com/m1sk9/HoneyPot/commit/68891111c8f2fec83365e6217a6e45d6de0cbe9b))
+* **deps:** update rust crate toml to v1.2.1 ([#65](https://github.com/m1sk9/HoneyPot/issues/65)) ([4705cf8](https://github.com/m1sk9/HoneyPot/commit/4705cf8b42b02a484175e36165c79e2012c94013))
+* **deps:** update rust crate toml to v1.2.2 ([#72](https://github.com/m1sk9/HoneyPot/issues/72)) ([f4d2511](https://github.com/m1sk9/HoneyPot/commit/f4d25116deccdb5c819fff8b11c9454f5024e834))
+* **deps:** update rust crate toml to v1.2.3 ([#73](https://github.com/m1sk9/HoneyPot/issues/73)) ([86660cc](https://github.com/m1sk9/HoneyPot/commit/86660cc2c26c4267addf2fc579c69c3255439db5))
+
 ## [0.6.2](https://github.com/m1sk9/HoneyPot/compare/honeypot-v0.6.1...honeypot-v0.6.2) (2026-10-22)
 
 
